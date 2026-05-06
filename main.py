@@ -1,39 +1,54 @@
+import os
+import requests
 from flask import Flask, request, jsonify
-import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# Este es el código que inventaste en Meta (Verify Token)
-# Úsalo para configurar el Webhook en el paso 3 de Meta
+# CONFIGURACIÓN
 VERIFY_TOKEN = "Mina_Giann_2026"
+ACCESS_TOKEN = "EAAmlw4rzjS0BRSoPbaLY8rBMRLhGkU8WTXZBHhm8pZC9ZB0lkKPDgZAfiAy8C32JBAwcxqVNCcQQZBiH6sbwO15KWx3KfeJvCglAvy11nRCZAjkFofhkpCrDnOveV6EpwZCKvBcGoJhw5MzuVxa0uUpO6dTzQjayom8tHUD8brbi93pB0oSlpXOQBqhCEFMh1lJgsJrDh6BtoSHjLx3BpBqgWaRGopVBVeBOkCBZBuukao9T8eEVEEpKuNiQgx1k3W06zrsQV0JULEOkhFZCfL9kOo01zoqVjzMFjKW04" # <--- Pega aquí el Token largo que generaste en Meta
+PHONE_NUMBER_ID = "1106542105873680" # Tu ID que vimos en la imagen anterior
+
+def enviar_mensaje(telefono, texto):
+    url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": telefono,
+        "type": "text",
+        "text": {"body": texto}
+    }
+    requests.post(url, json=data, headers=headers)
 
 @app.route("/webhook", methods=["GET"])
 def verify():
-    # Meta usa esto para validar tu servidor
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
     if token == VERIFY_TOKEN:
         return challenge
-    return "Token de verificación incorrecto", 403
+    return "Error de token", 403
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     try:
-        # Extraemos el mensaje y el número
-        message = data['entry'][0]['changes'][0]['value']['messages'][0]['text']['body']
-        from_no = data['entry'][0]['changes'][0]['value']['messages'][0]['from']
-        
-        # Obtenemos la fecha actual de Perú
-        ahora = datetime.datetime.now() - datetime.timedelta(hours=5)
-        fecha_texto = ahora.strftime("%d/%m/%Y %H:%M:%S")
+        if 'messages' in data['entry'][0]['changes'][0]['value']:
+            mensaje_recibido = data['entry'][0]['changes'][0]['value']['messages'][0]['text']['body'].lower()
+            remitente = data['entry'][0]['changes'][0]['value']['messages'][0]['from']
+            
+            # Hora de Perú
+            fecha_hora = (datetime.now() - timedelta(hours=5)).strftime("%d/%m/%Y %H:%M:%S")
 
-        print(f"Mensaje recibido: {message} de {from_no}")
-        
-        # Por ahora solo imprimimos en la consola de Railway para probar
-        return jsonify({"status": "recibido"}), 200
-    except:
-        return jsonify({"status": "error"}), 200
+            if "hola" in mensaje_recibido:
+                respuesta = f"¡Hola! Soy tu asistente de Cerro Lindo.\n📅 Fecha/Hora: {fecha_hora}\n\n¿Qué deseas hacer hoy?\n1. Registrar avance (Perforista)\n2. Consultar resumen (Gerente)"
+                enviar_mensaje(remitente, respuesta)
+            
+            print(f"Mensaje: {mensaje_recibido} de {remitente}")
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
