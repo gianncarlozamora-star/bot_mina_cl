@@ -41,9 +41,12 @@ def ejecutar_dict(sql, params=None, fetchone=False, fetchall=False):
         cols = [d[0] for d in cur.description] if cur.description else []
         if fetchone:
             row = cur.fetchone()
+            conn.commit()
             return dict(zip(cols, row)) if row else None
         if fetchall:
-            return [dict(zip(cols, r)) for r in cur.fetchall()]
+            rows = cur.fetchall()
+            conn.commit()
+            return [dict(zip(cols, r)) for r in rows]
         conn.commit()
         return cur.rowcount
     except Exception as e:
