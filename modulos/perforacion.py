@@ -2,7 +2,7 @@
 FLUJO DE REPORTE DE AVANCE DE PERFORACIÓN
 Para roles PERFORISTA.
 Pasos: maquina → sondaje → turno → profundidades →
-       observaciones → foto → confirmacion → reporte_empresa
+       observaciones → foto → confirmacion → reporte_empresa → post_consolidado
 """
 from db.sesiones import actualizar_sesion, cerrar_sesion
 from db.sondajes import buscar_sondaje, calcular_valor_turno
@@ -42,11 +42,22 @@ def iniciar(usuario: dict, sesion_id: int) -> str:
     )
 
 
-def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
+def procesar(mensaje: str, usuario: dict, sesion: dict,
+             foto_url: str = None) -> str:
     paso  = sesion["paso"]
     datos = sesion["datos"]
     sid   = sesion["id"]
     msg   = mensaje.strip()
+
+    # Si viene foto en paso foto, procesarla directamente
+    if foto_url and paso == "foto":
+        datos["foto_url"]   = foto_url
+        datos["foto_tramo"] = (
+            f"{datos.get('prof_inicio', 0):.1f}-"
+            f"{datos.get('prof_final', 0):.1f}m"
+        )
+        actualizar_sesion(sid, "confirmacion", datos)
+        return _mostrar_resumen(datos)
 
     # ── Selección de máquina ──────────────────────────────────
     if paso == "maquina":
@@ -84,17 +95,15 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             datos["final_m_actual"] = 0
             actualizar_sesion(sid, "turno", datos)
             return (
-                f"⚠️ Registrando como *provisional* ({bhid_temp})\n"
-                f"Geología deberá asignar el código definitivo.\n\n"
+                f"⚠️ Registrando como *provisional* ({bhid_temp})\n\n"
                 f"¿Qué turno reportas?\n"
                 f"  *1* — Día\n  *2* — Noche\n"
             )
-
         sondaje = buscar_sondaje(msg)
         if not sondaje:
             return (
-                f"❌ No encontré el sondaje *{msg}*.\n\n"
-                f"Verifica el código o escribe *provisional* si aún no tiene código.\n"
+                f"❌ No encontré *{msg}*.\n\n"
+                f"Verifica el código o escribe *provisional*.\n"
             )
         datos["bhid"]           = sondaje["bhid"]
         datos["sondaje_nivel"]  = sondaje.get("nivel", "—")
@@ -105,7 +114,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         actualizar_sesion(sid, "turno", datos, sondaje_context=sondaje["bhid"])
         return (
             f"✅ Sondaje: *{sondaje['bhid']}*\n"
-            f"   Nivel {sondaje.get('nivel','—')} | {sondaje.get('labor','—')}\n"
+            f"   Nv.{sondaje.get('nivel','—')} | {sondaje.get('labor','—')}\n"
             f"   Prog: {sondaje.get('prog_m','—')} m | "
             f"Actual: {sondaje.get('final_m') or 0:.1f} m\n\n"
             f"¿Qué turno reportas?\n"
@@ -136,11 +145,11 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                 raise ValueError
             datos["prof_inicio"] = prof_ini
         except ValueError:
-            return "❓ Ingresa un número válido. Ejemplo: 182.50"
+            return "❓ Número válido. Ejemplo: 182.50"
         actualizar_sesion(sid, "prof_final", datos)
         return (
             f"✅ Inicio: *{prof_ini:.2f} m*\n\n"
-            f"¿*Profundidad final* del turno (metros)?\n"
+            f"¿*Profundidad final* del turno?\n"
         )
 
     # ── Profundidad final ─────────────────────────────────────
@@ -148,25 +157,24 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         try:
             prof_fin = float(msg.replace(",", "."))
             if prof_fin <= datos.get("prof_inicio", 0):
-                return f"❓ La profundidad final debe ser mayor a {datos['prof_inicio']:.2f} m."
+                return f"❓ Debe ser mayor a {datos['prof_inicio']:.2f} m."
             datos["prof_final"] = prof_fin
         except ValueError:
-            return "❓ Ingresa un número válido."
+            return "❓ Número válido."
 
         avance = prof_fin - datos["prof_inicio"]
         datos["avance"]         = round(avance, 2)
         datos["retorno_fluido"] = "100%"
-
         sufijo = datos.get("sufijo", "")
         diam   = datos.get("diametro", "NQ")
-        valor  = calcular_valor_turno(diam, datos["prof_inicio"], prof_fin, sufijo)
-        datos["valor_usd"] = valor
+        datos["valor_usd"] = calcular_valor_turno(
+            diam, datos["prof_inicio"], prof_fin, sufijo)
 
         actualizar_sesion(sid, "observaciones", datos)
         return (
             f"✅ Final: *{prof_fin:.2f} m* | Avance: *{avance:.2f} m*\n\n"
             f"¿*Observaciones* del turno?\n"
-            f"Escribe las novedades o *ninguna* si no hay.\n"
+            f"Escribe las novedades o *ninguna*.\n"
         )
 
     # ── Observaciones ─────────────────────────────────────────
@@ -174,20 +182,14 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         datos["observaciones"] = "" if msg.lower() == "ninguna" else msg
         actualizar_sesion(sid, "foto", datos)
         return (
-            f"📸 ¿Deseas adjuntar una *foto* de la última caja o tramo?\n"
-            f"Envía la foto ahora o escribe *no* para continuar.\n"
+            f"📸 ¿Adjuntar foto de la última caja o tramo?\n"
+            f"Envía la foto o escribe *no*.\n"
         )
 
     # ── Foto ──────────────────────────────────────────────────
     elif paso == "foto":
         if msg.lower() in ("no", "n", "omitir", "skip"):
             datos["foto_url"] = None
-        elif msg.startswith("FOTO:"):
-            datos["foto_url"]   = msg.replace("FOTO:", "").strip()
-            datos["foto_tramo"] = (
-                f"{datos.get('prof_inicio',0):.1f}-"
-                f"{datos.get('prof_final',0):.1f}m"
-            )
         actualizar_sesion(sid, "confirmacion", datos)
         return _mostrar_resumen(datos)
 
@@ -196,15 +198,14 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         if msg.lower() in ("no", "cancelar"):
             cerrar_sesion(usuario["id"])
             return "❌ Reporte cancelado."
-
         if msg.lower() not in ("sí", "si", "yes", "ok", "confirma"):
-            return "¿Confirmas? Responde *sí* o *no*."
+            return "¿Confirmas? *sí* o *no*."
 
         try:
             sondaje_id = _obtener_sondaje_id(datos["bhid"])
             if not sondaje_id:
                 cerrar_sesion(usuario["id"])
-                return "⚠️ No se encontró el sondaje en BD. Contacta al administrador."
+                return "⚠️ Sondaje no encontrado en BD."
 
             ejecutar(
                 """INSERT INTO avance_perforacion (
@@ -223,12 +224,9 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                     datos.get("observaciones"),
                     datos.get("foto_url"),
                     datos.get("foto_tramo"),
-                    usuario["id"],
-                    str(datos)
+                    usuario["id"], str(datos)
                 )
             )
-
-            # Actualizar profundidad final en sondaje maestro
             ejecutar(
                 """UPDATE sondajes SET profundidad_final = %s,
                    fecha_inicio_perf = COALESCE(fecha_inicio_perf, %s)
@@ -236,39 +234,46 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                 (datos["prof_final"], datos["fecha"], datos["bhid"])
             )
 
-            # Generar mensaje individual
             msg_individual = generar_mensaje_estandarizado(datos)
-            datos["msg_individual"] = msg_individual
             empresa_nombre = _obtener_empresa(datos)
+            datos["msg_individual"] = msg_individual
             actualizar_sesion(sid, "reporte_empresa", datos)
 
             return (
-                f"✅ *Reporte registrado exitosamente*\n"
+                f"✅ *Reporte registrado*\n"
                 f"📅 {fecha_hora_str()}\n\n"
                 f"─────────────────────\n"
-                f"📋 *TU REPORTE:*\n"
+                f"📋 *TU REPORTE — {datos.get('maquina_cod','—')}:*\n"
                 f"_(Copia y reenvía a tu grupo)_\n\n"
                 f"{msg_individual}\n"
                 f"─────────────────────\n\n"
-                f"¿Quieres generar el *reporte consolidado* de "
-                f"todas las máquinas de *{empresa_nombre}* "
+                f"¿Generar reporte consolidado de *{empresa_nombre}* "
                 f"para este turno?\n"
-                f"  *sí* — Generar\n"
-                f"  *no* — Terminar\n"
+                f"  *sí* — Generar consolidado\n"
+                f"  *no* — Registrar otra máquina\n"
+                f"  *fin* — Terminar\n"
             )
 
         except Exception as e:
             print(f"[PERFORACION] Error: {e}")
-            return "⚠️ Error al guardar el reporte. Intenta de nuevo."
+            return "⚠️ Error al guardar. Intenta de nuevo."
 
     # ── Reporte consolidado por empresa ───────────────────────
     elif paso == "reporte_empresa":
-        if msg.lower() in ("no", "n", "terminar"):
+        if msg.lower() == "fin":
             cerrar_sesion(usuario["id"])
-            return "✅ Listo. Escribe *hola* si necesitas algo más."
+            return "✅ Sesión cerrada. Escribe *hola* cuando necesites."
+
+        if msg.lower() in ("no", "n", "otra"):
+            return _menu_siguiente_maquina(sid, datos)
 
         if msg.lower() not in ("sí", "si", "yes", "ok"):
-            return "¿Generar reporte empresa? *sí* o *no*."
+            return (
+                f"Responde:\n"
+                f"  *sí* — Generar consolidado\n"
+                f"  *no* — Registrar otra máquina\n"
+                f"  *fin* — Terminar\n"
+            )
 
         try:
             empresa_id = datos.get("empresa_id", 1)
@@ -291,52 +296,90 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             )
 
             if not rows:
-                cerrar_sesion(usuario["id"])
-                return "⚠️ No hay otros reportes de tu empresa para este turno aún."
+                actualizar_sesion(sid, "reporte_empresa", datos)
+                return (
+                    f"⚠️ Aún no hay reportes de otras máquinas para este turno.\n\n"
+                    f"  *no* — Registrar otra máquina\n"
+                    f"  *fin* — Terminar\n"
+                )
 
-            reportes = []
-            for r in rows:
-                reportes.append({
-                    "prof_inicio":   float(r[0] or 0),
-                    "prof_final":    float(r[1] or 0),
-                    "avance":        float(r[2] or 0),
-                    "observaciones": r[3] or "Sin novedades",
-                    "maquina_cod":   r[4],
-                    "bhid":          r[5],
-                    "sondaje_nivel": r[6],
-                    "sondaje_labor": r[7],
-                    "diametro":      r[8],
-                    "prog_m":        r[9],
-                    "turno":         turno,
-                    "fecha":         fecha,
-                })
+            reportes = [{
+                "prof_inicio":   float(r[0] or 0),
+                "prof_final":    float(r[1] or 0),
+                "avance":        float(r[2] or 0),
+                "observaciones": r[3] or "Sin novedades",
+                "maquina_cod":   r[4],
+                "bhid":          r[5],
+                "sondaje_nivel": r[6],
+                "sondaje_labor": r[7],
+                "diametro":      r[8],
+                "prog_m":        r[9],
+                "turno":         turno,
+                "fecha":         fecha,
+            } for r in rows]
 
             emp_row = ejecutar(
                 "SELECT nombre FROM cat_empresas WHERE id = %s",
                 (empresa_id,), fetchone=True
             )
             empresa_nombre = emp_row[0] if emp_row else "Empresa"
+            consolidado    = generar_reporte_empresa(reportes, empresa_nombre, fecha)
 
-            reporte_consolidado = generar_reporte_empresa(
-                reportes, empresa_nombre, fecha
-            )
-
-            cerrar_sesion(usuario["id"])
+            # Pasar a post_consolidado para preguntar si registra otra máquina
+            actualizar_sesion(sid, "post_consolidado", datos)
             return (
                 f"─────────────────────\n"
-                f"🏢 *REPORTE {empresa_nombre.upper()}*\n"
+                f"🏢 *REPORTE {empresa_nombre.upper()} — TURNO {turno}*\n"
                 f"_(Copia y reenvía al grupo de tu empresa)_\n\n"
-                f"{reporte_consolidado}\n"
-                f"─────────────────────"
+                f"{consolidado}\n"
+                f"─────────────────────\n\n"
+                f"¿Registrar otra máquina?\n"
+                f"  *sí* — Continuar\n"
+                f"  *no* — Terminar\n"
             )
 
         except Exception as e:
-            print(f"[PERFORACION] Error reporte empresa: {e}")
+            print(f"[PERFORACION] Error consolidado: {e}")
             cerrar_sesion(usuario["id"])
-            return "⚠️ Error generando reporte empresa. Tu reporte individual ya fue guardado."
+            return "⚠️ Error generando consolidado. Tu reporte individual ya fue guardado."
 
-    return "❓ Paso no reconocido. Escribe *hola* para reiniciar."
+    # ── Post consolidado: ¿otra máquina? ─────────────────────
+    elif paso == "post_consolidado":
+        if msg.lower() in ("no", "n", "fin", "terminar"):
+            cerrar_sesion(usuario["id"])
+            return "✅ Listo. Escribe *hola* cuando necesites."
 
+        if msg.lower() in ("sí", "si", "yes", "ok"):
+            return _menu_siguiente_maquina(sid, datos)
+
+        return "*sí* para registrar otra máquina o *no* para terminar."
+
+    return "❓ Escribe *hola* para reiniciar."
+
+
+# ── HELPERS ───────────────────────────────────────────────────
+
+def _menu_siguiente_maquina(sid: int, datos: dict) -> str:
+    """Prepara el menú para registrar la siguiente máquina del mismo turno."""
+    maquinas = obtener_maquinas_activas()
+    menu = "\n".join([f"  *{i+1}* — {m['codigo']} ({m['empresa']})"
+                      for i, m in enumerate(maquinas)])
+    datos_nueva = {
+        "empresa_id":      datos.get("empresa_id"),
+        "turno":           datos.get("turno"),
+        "fecha":           datos.get("fecha"),
+        "maquina_opciones": [(m["id"], m["codigo"],
+                               m["empresa"]) for m in maquinas],
+    }
+    actualizar_sesion(sid, "maquina", datos_nueva)
+    return (
+        f"⛏️ *SIGUIENTE MÁQUINA*\n"
+        f"Turno: *{datos.get('turno','—')}* | "
+        f"📅 {datos.get('fecha','—')}\n\n"
+        f"¿Qué máquina reportas ahora?\n\n"
+        f"{menu}\n\n"
+        f"Responde con el número.\n"
+    )
 
 def _mostrar_resumen(datos: dict) -> str:
     return (
@@ -349,9 +392,9 @@ def _mostrar_resumen(datos: dict) -> str:
         f"📏 Hasta:    {datos.get('prof_final',0):.2f} m\n"
         f"➡️ Avance:   *{datos.get('avance',0):.2f} m*\n"
         f"📝 Obs:      {datos.get('observaciones','Ninguna') or 'Ninguna'}\n"
-        f"📸 Foto:     {'Sí' if datos.get('foto_url') else 'No'}\n"
+        f"📸 Foto:     {'✅ Adjunta' if datos.get('foto_url') else 'No'}\n"
         f"{'─'*30}\n\n"
-        f"¿Confirmas el registro? (*sí* / *no*)\n"
+        f"¿Confirmas? (*sí* / *no*)\n"
     )
 
 def _obtener_sondaje_id(bhid: str) -> int | None:
