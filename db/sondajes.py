@@ -221,14 +221,13 @@ def obtener_tarifa(diametro: str, metros: float, sufijo: str) -> float | None:
 
 def calcular_valor_turno(diametro: str, prof_inicio: float,
                           prof_final: float, sufijo: str) -> float:
-    """
-    Calcula el valor USD de un turno considerando que puede cruzar tramos.
-    Divide los metros por tramo tarifario y suma el costo total.
-    """
     total = 0.0
-    metro_actual = prof_inicio
+    metro_actual = float(prof_inicio)
+    max_iter = 50  # evitar loop infinito
+    iteraciones = 0
 
-    while metro_actual < prof_final:
+    while metro_actual < float(prof_final) and iteraciones < max_iter:
+        iteraciones += 1
         tarifa_row = ejecutar(
             """SELECT precio_usd, tramo_hasta
                FROM cat_tarifas
@@ -236,13 +235,19 @@ def calcular_valor_turno(diametro: str, prof_inicio: float,
                  AND %s >= tramo_desde AND %s < tramo_hasta
                  AND fase_activa = TRUE
                LIMIT 1""",
-            (diametro, sufijo, int(metro_actual), int(metro_actual)), fetchone=True
+            (diametro, sufijo, int(metro_actual), int(metro_actual)),
+            fetchone=True
         )
         if not tarifa_row:
+            # No hay tarifa para este tramo, saltar 100m y continuar
+            metro_actual += 100.0
             break
-        precio, tramo_hasta = float(tarifa_row[0]), float(tarifa_row[1])
-        metros_en_tramo = min(prof_final, tramo_hasta) - metro_actual
+        precio     = float(tarifa_row[0])
+        tramo_hasta = float(tarifa_row[1])
+        metros_en_tramo = min(float(prof_final), tramo_hasta) - metro_actual
+        if metros_en_tramo <= 0:
+            break
         total += metros_en_tramo * precio
         metro_actual = tramo_hasta
 
-    metro_actual = float(tramo_hasta)
+    return round(total, 2)
