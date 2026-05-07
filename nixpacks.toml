@@ -1,2 +1,5 @@
 [phases.setup]
-nixPkgs = ["python311", "libpq"]
+nixPkgs = ["python311", "python311Packages.pip", "libpq"]
+
+[variables]
+NIXPACKS_PYTHON_VERSION = "3.11"
