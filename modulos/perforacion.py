@@ -2,20 +2,19 @@
 FLUJO DE REPORTE DE AVANCE DE PERFORACIÓN
 Para roles PERFORISTA.
 Pasos: maquina → sondaje → turno → profundidades →
-       retorno_fluido → observaciones → foto → confirmación
+       observaciones → foto → confirmación
 """
-from db.sesiones import crear_sesion, actualizar_sesion, cerrar_sesion
+from db.sesiones import actualizar_sesion, cerrar_sesion
 from db.sondajes import buscar_sondaje, calcular_valor_turno
 from db.conexion import ejecutar
 from db.usuarios import obtener_maquinas_activas
 from ia.interprete import generar_mensaje_estandarizado
-from config import fecha_hora_str, hora_peru
+from config import fecha_hora_str
 from config import hora_peru as _hora
 
 FLUJO = "PERFORACION"
 
 def iniciar(usuario: dict, sesion_id: int) -> str:
-    # Si el usuario ya tiene máquina asignada, saltamos ese paso
     if usuario.get("maquina"):
         actualizar_sesion(sesion_id, "sondaje",
                           {"maquina_id":  usuario["maquina_id"],
@@ -28,7 +27,6 @@ def iniciar(usuario: dict, sesion_id: int) -> str:
             f"¿Cuál es el *código del sondaje*?\n"
             f"Ejemplo: 8422, PECLD08422\n"
         )
-    # Si no tiene máquina asignada, mostrar lista
     maquinas = obtener_maquinas_activas()
     menu = "\n".join([f"  *{i+1}* — {m['codigo']} ({m['empresa']})"
                       for i, m in enumerate(maquinas)])
@@ -56,10 +54,8 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             return f"❓ Responde con un número del 1 al {len(opciones)}."
         idx = int(msg) - 1
         maq_id, maq_cod, empresa = opciones[idx]
-        # Buscar empresa_id y sufijo
         row = ejecutar(
-            """SELECT m.empresa_id, m.sufijo_tarifa
-               FROM cat_maquinas m WHERE m.id = %s""",
+            "SELECT empresa_id, sufijo_tarifa FROM cat_maquinas WHERE id = %s",
             (maq_id,), fetchone=True
         )
         datos.update({
@@ -77,40 +73,40 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
 
     # ── Sondaje ───────────────────────────────────────────────
     elif paso == "sondaje":
+        if msg.lower() == "provisional":
+            ts = _hora().strftime("%d%m-%H%M")
+            bhid_temp = f"TEMP-{datos.get('maquina_cod','X').replace('-','')}-{ts}"
+            datos["bhid"]          = bhid_temp
+            datos["es_provisional"] = True
+            datos["diametro"]      = "NQ"
+            datos["prog_m"]        = 0
+            datos["final_m_actual"] = 0
+            actualizar_sesion(sid, "turno", datos)
+            return (
+                f"⚠️ Registrando como *provisional* ({bhid_temp})\n"
+                f"Geología deberá asignar el código definitivo.\n\n"
+                f"¿Qué turno reportas?\n"
+                f"  *1* — Día\n  *2* — Noche\n"
+            )
+
         sondaje = buscar_sondaje(msg)
         if not sondaje:
             return (
                 f"❌ No encontré el sondaje *{msg}*.\n\n"
-                f"¿El sondaje ya fue matriculado por geología?\n"
-                f"Si acaba de iniciar y no tiene código, escribe *provisional*.\n"
+                f"Verifica el código o escribe *provisional* si aún no tiene código.\n"
             )
         datos["bhid"]           = sondaje["bhid"]
         datos["sondaje_nivel"]  = sondaje.get("nivel", "—")
         datos["sondaje_labor"]  = sondaje.get("labor", "—")
         datos["diametro"]       = sondaje.get("diametro", "NQ")
         datos["prog_m"]         = sondaje.get("prog_m", 0)
-        datos["final_m_actual"] = sondaje.get("final_m", 0)
+        datos["final_m_actual"] = sondaje.get("final_m") or 0
         actualizar_sesion(sid, "turno", datos, sondaje_context=sondaje["bhid"])
         return (
             f"✅ Sondaje: *{sondaje['bhid']}*\n"
             f"   Nivel {sondaje.get('nivel','—')} | {sondaje.get('labor','—')}\n"
-            f"   Prog: {sondaje.get('prog_m','—')} m | Actual: {sondaje.get('final_m') or 0:.1f} m\n\n"
-            f"¿Qué turno reportas?\n"
-            f"  *1* — Día\n  *2* — Noche\n"
-        )
-
-    # ── Sondaje provisional ───────────────────────────────────
-    elif paso == "sondaje" and msg.lower() == "provisional":
-        from config import hora_peru
-        ts = _hora().strftime("%d%m-%H%M")
-        bhid_temp = f"TEMP-{datos['maquina_cod'].replace('-','')}-{ts}"
-        datos["bhid"] = bhid_temp
-        datos["es_provisional"] = True
-        datos["diametro"] = "NQ"
-        actualizar_sesion(sid, "turno", datos)
-        return (
-            f"⚠️ Registrando como *provisional* ({bhid_temp})\n"
-            f"Geología deberá asignar el código definitivo.\n\n"
+            f"   Prog: {sondaje.get('prog_m','—')} m | "
+            f"Actual: {sondaje.get('final_m') or 0:.1f} m\n\n"
             f"¿Qué turno reportas?\n"
             f"  *1* — Día\n  *2* — Noche\n"
         )
@@ -123,7 +119,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         if not turno:
             return "❓ Responde *1* (Día) o *2* (Noche)."
         datos["turno"] = turno
-        from config import hora_peru as _hora
         datos["fecha"] = _hora().strftime("%Y-%m-%d")
         actualizar_sesion(sid, "prof_inicio", datos)
         return (
@@ -156,32 +151,20 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             datos["prof_final"] = prof_fin
         except ValueError:
             return "❓ Ingresa un número válido."
-        avance = prof_fin - datos["prof_inicio"]
-        datos["avance"] = round(avance, 2)
 
-        # Calcular valor automáticamente
-        sufijo  = datos.get("sufijo", "")
-        diam    = datos.get("diametro", "NQ")
-        valor   = calcular_valor_turno(diam, datos["prof_inicio"], prof_fin, sufijo)
+        avance = prof_fin - datos["prof_inicio"]
+        datos["avance"]        = round(avance, 2)
+        datos["retorno_fluido"] = "100%"  # default, no se pregunta al perforista
+
+        # Calcular valor internamente (no se muestra al perforista)
+        sufijo = datos.get("sufijo", "")
+        diam   = datos.get("diametro", "NQ")
+        valor  = calcular_valor_turno(diam, datos["prof_inicio"], prof_fin, sufijo)
         datos["valor_usd"] = valor
 
-        actualizar_sesion(sid, "retorno_fluido", datos)
-        return (
-            f"✅ Final: *{prof_fin:.2f} m* | Avance: *{avance:.2f} m*\n"
-            f"💰 Valorización estimada: *${valor:,.2f}*\n\n"
-            f"¿*Retorno de fluido*?\n"
-            f"  *1* — 100%\n  *2* — Parcial\n  *3* — Sin retorno\n"
-        )
-
-    # ── Retorno de fluido ─────────────────────────────────────
-    elif paso == "retorno_fluido":
-        opciones = {"1": "100%", "2": "Parcial", "3": "Sin retorno",
-                    "100%": "100%", "100": "100%", "parcial": "Parcial"}
-        retorno = opciones.get(msg.lower(), msg)
-        datos["retorno_fluido"] = retorno
         actualizar_sesion(sid, "observaciones", datos)
         return (
-            f"✅ Retorno de fluido: *{retorno}*\n\n"
+            f"✅ Final: *{prof_fin:.2f} m* | Avance: *{avance:.2f} m*\n\n"
             f"¿*Observaciones* del turno?\n"
             f"Escribe las novedades o *ninguna* si no hay.\n"
         )
@@ -199,10 +182,12 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
     elif paso == "foto":
         if msg.lower() in ("no", "n", "omitir", "skip"):
             datos["foto_url"] = None
-        # Si llega URL de foto (procesada en webhook)
         elif msg.startswith("FOTO:"):
             datos["foto_url"]   = msg.replace("FOTO:", "").strip()
-            datos["foto_tramo"] = f"{datos.get('prof_inicio',0):.1f}-{datos.get('prof_final',0):.1f}m"
+            datos["foto_tramo"] = (
+                f"{datos.get('prof_inicio',0):.1f}-"
+                f"{datos.get('prof_final',0):.1f}m"
+            )
         actualizar_sesion(sid, "confirmacion", datos)
         return _mostrar_resumen(datos)
 
@@ -215,10 +200,8 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         if msg.lower() not in ("sí", "si", "yes", "ok", "confirma"):
             return "¿Confirmas? Responde *sí* o *no*."
 
-        # Guardar en BD
         try:
-            sondaje_row = buscar_sondaje(datos["bhid"])
-            sondaje_id  = _obtener_sondaje_id(datos["bhid"])
+            sondaje_id = _obtener_sondaje_id(datos["bhid"])
             if not sondaje_id:
                 cerrar_sesion(usuario["id"])
                 return "⚠️ No se encontró el sondaje en BD. Contacta al administrador."
@@ -235,9 +218,12 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                     sondaje_id, datos["maquina_id"],
                     datos["fecha"], datos["turno"],
                     datos["prof_inicio"], datos["prof_final"],
-                    datos.get("valor_usd"), datos.get("retorno_fluido"),
-                    datos.get("observaciones"), datos.get("foto_url"),
-                    datos.get("foto_tramo"), usuario["id"],
+                    datos.get("valor_usd"),
+                    datos.get("retorno_fluido", "100%"),
+                    datos.get("observaciones"),
+                    datos.get("foto_url"),
+                    datos.get("foto_tramo"),
+                    usuario["id"],
                     str(datos)
                 )
             )
@@ -285,9 +271,7 @@ def _mostrar_resumen(datos: dict) -> str:
         f"📏 Desde:    {datos.get('prof_inicio',0):.2f} m\n"
         f"📏 Hasta:    {datos.get('prof_final',0):.2f} m\n"
         f"➡️ Avance:   *{datos.get('avance',0):.2f} m*\n"
-        f"💧 Fluido:   {datos.get('retorno_fluido','—')}\n"
-        f"💰 Valor:    ${datos.get('valor_usd',0):,.2f}\n"
-        f"📝 Obs:      {datos.get('observaciones','—') or 'Ninguna'}\n"
+        f"📝 Obs:      {datos.get('observaciones','Ninguna') or 'Ninguna'}\n"
         f"📸 Foto:     {'Sí' if datos.get('foto_url') else 'No'}\n"
         f"{'─'*30}\n\n"
         f"¿Confirmas el registro? (*sí* / *no*)\n"
