@@ -1,22 +1,17 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import pg8000
+import urllib.parse
 from config import DATABASE_URL
 
-def get_db():
-    """Retorna una conexión nueva a PostgreSQL."""
-    return psycopg2.connect(DATABASE_URL)
+def _parse(url):
+    r = urllib.parse.urlparse(url)
+    return dict(host=r.hostname, port=r.port or 5432,
+                user=r.username, password=r.password,
+                database=r.path.lstrip("/"), ssl_context=True)
 
-def get_db_dict():
-    """Retorna conexión con cursor que devuelve dicts en vez de tuplas."""
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn, conn.cursor(cursor_factory=RealDictCursor)
+def get_db():
+    return pg8000.connect(**_parse(DATABASE_URL))
 
 def ejecutar(sql, params=None, fetchone=False, fetchall=False):
-    """
-    Ejecuta una query y retorna resultado.
-    Para SELECT usa fetchone=True o fetchall=True.
-    Para INSERT/UPDATE/DELETE retorna rowcount.
-    """
     conn = get_db()
     cur  = conn.cursor()
     try:
@@ -35,15 +30,16 @@ def ejecutar(sql, params=None, fetchone=False, fetchall=False):
         conn.close()
 
 def ejecutar_dict(sql, params=None, fetchone=False, fetchall=False):
-    """Igual que ejecutar() pero devuelve dicts."""
-    conn, cur = get_db_dict()
+    conn = get_db()
+    cur  = conn.cursor()
     try:
         cur.execute(sql, params or ())
+        cols = [d[0] for d in cur.description] if cur.description else []
         if fetchone:
-            return dict(cur.fetchone()) if cur.rowcount != 0 else None
+            row = cur.fetchone()
+            return dict(zip(cols, row)) if row else None
         if fetchall:
-            rows = cur.fetchall()
-            return [dict(r) for r in rows]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
         conn.commit()
         return cur.rowcount
     except Exception as e:
