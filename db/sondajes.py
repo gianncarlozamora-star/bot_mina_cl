@@ -236,7 +236,7 @@ def calcular_valor_turno(diametro: str, prof_inicio: float,
                  AND %s >= tramo_desde AND %s < tramo_hasta
                  AND fase_activa = TRUE
                LIMIT 1""",
-            (diametro, sufijo, metro_actual, metro_actual), fetchone=True
+            (diametro, sufijo, int(metro_actual), int(metro_actual)), fetchone=True
         )
         if not tarifa_row:
             break
@@ -245,4 +245,4 @@ def calcular_valor_turno(diametro: str, prof_inicio: float,
         total += metros_en_tramo * precio
         metro_actual = tramo_hasta
 
-    return round(total, 2)
+    metro_actual = float(tramo_hasta)
