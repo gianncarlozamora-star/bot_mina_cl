@@ -3,19 +3,18 @@ from db.conexion import ejecutar
 from config import hora_peru, SESION_TIMEOUT_MIN
 
 def obtener_sesion(usuario_id: int) -> dict | None:
-    """Retorna la sesión activa del usuario o None si no existe / expiró."""
     row = ejecutar(
         """SELECT id, flujo_activo, paso_actual, datos_parciales, sondaje_context
            FROM sesiones_bot
            WHERE usuario_id = %s AND activa = TRUE
-             AND (expirada_en IS NULL OR expirada_en > %s)
            ORDER BY iniciada_en DESC LIMIT 1""",
-        (usuario_id, hora_peru()), fetchone=True
+        (usuario_id,), fetchone=True
     )
     if not row:
         return None
     datos = row[3]
     if isinstance(datos, str):
+        import json
         datos = json.loads(datos)
     return {
         "id":              row[0],
