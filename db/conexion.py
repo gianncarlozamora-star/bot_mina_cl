@@ -17,9 +17,13 @@ def ejecutar(sql, params=None, fetchone=False, fetchall=False):
     try:
         cur.execute(sql, params or ())
         if fetchone:
-            return cur.fetchone()
+            result = cur.fetchone()
+            conn.commit()
+            return result
         if fetchall:
-            return cur.fetchall()
+            result = cur.fetchall()
+            conn.commit()
+            return result
         conn.commit()
         return cur.rowcount
     except Exception as e:
