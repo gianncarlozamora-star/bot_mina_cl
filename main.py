@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 # CONFIGURACIÓN
 VERIFY_TOKEN = "Mina_Giann_2026"
-ACCESS_TOKEN = "EAAmlw4rzjS0BRSoPbaLY8rBMRLhGkU8WTXZBHhm8pZC9ZB0lkKPDgZAfiAy8C32JBAwcxqVNCcQQZBiH6sbwO15KWx3KfeJvCglAvy11nRCZAjkFofhkpCrDnOveV6EpwZCKvBcGoJhw5MzuVxa0uUpO6dTzQjayom8tHUD8brbi93pB0oSlpXOQBqhCEFMh1lJgsJrDh6BtoSHjLx3BpBqgWaRGopVBVeBOkCBZBuukao9T8eEVEEpKuNiQgx1k3W06zrsQV0JULEOkhFZCfL9kOo01zoqVjzMFjKW04" # <--- Pega aquí el Token largo que generaste en Meta
+ACCESS_TOKEN = "EAAmlw4rzjS0BRSF9ygexZA2xezhWvNAyOerG575vl2fMGs33fRRj4iUtHG8nHyce3Bc1c9B6OP9HjWap4N4c2ruSrJOTHyovKsRmdwdleqqmQv3JONQpXvodx0R3fHmWH8g0uFzZC6d0y3Y00ZBS93c0QUoCQHXolIKBqf8ayXG9F5u3KgmzReyLcptZAQZDZD" # <--- Pega aquí el Token largo que generaste en Meta
 PHONE_NUMBER_ID = "1106542105873680" # Tu ID que vimos en la imagen anterior
 
 def enviar_mensaje(telefono, texto):
