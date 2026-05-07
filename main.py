@@ -1,31 +1,33 @@
 import os
 import requests
 import psycopg2
+import anthropic
 from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# ─── CONFIGURACIÓN (desde variables de entorno de Railway) ───────────────────
-VERIFY_TOKEN   = os.environ.get("VERIFY_TOKEN", "Mina_Giann_2026")
-ACCESS_TOKEN   = os.environ.get("ACCESS_TOKEN")
+# ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
+VERIFY_TOKEN    = os.environ.get("VERIFY_TOKEN", "Mina_Giann_2026")
+ACCESS_TOKEN    = os.environ.get("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
-DATABASE_URL   = os.environ.get("DATABASE_URL")
+DATABASE_URL    = os.environ.get("DATABASE_URL")
+ANTHROPIC_KEY   = os.environ.get("ANTHROPIC_API_KEY")
 
-# ─── HORA PERÚ ───────────────────────────────────────────────────────────────
+cliente_ai = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+
+# ─── HORA PERÚ ────────────────────────────────────────────────────────────────
 def hora_peru():
     return datetime.utcnow() - timedelta(hours=5)
 
-# ─── CONEXIÓN A POSTGRESQL ───────────────────────────────────────────────────
+# ─── BASE DE DATOS ────────────────────────────────────────────────────────────
 def get_db():
     return psycopg2.connect(DATABASE_URL)
 
-# ─── CREAR TABLAS AL INICIAR (datos ficticios de ejemplo) ────────────────────
 def inicializar_db():
     conn = get_db()
     cur = conn.cursor()
 
-    # Tabla de tajos
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tajos (
             id VARCHAR(50) PRIMARY KEY,
@@ -46,7 +48,6 @@ def inicializar_db():
         )
     """)
 
-    # Tabla de sondajes DDH
     cur.execute("""
         CREATE TABLE IF NOT EXISTS sondajes_ddh (
             id SERIAL PRIMARY KEY,
@@ -69,18 +70,16 @@ def inicializar_db():
         )
     """)
 
-    # Tabla de usuarios/roles
     cur.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             telefono VARCHAR(20) PRIMARY KEY,
             nombre VARCHAR(100),
-            rol VARCHAR(20),  -- 'perforista' o 'gerente'
+            rol VARCHAR(20),
             activo BOOLEAN DEFAULT TRUE
         )
     """)
 
-    # ── DATOS FICTICIOS DE EJEMPLO ──────────────────────────────────────────
-    # Insertar tajos de ejemplo (basados en tu estructura real)
+    # Datos ficticios de ejemplo basados en Cerro Lindo
     cur.execute("""
         INSERT INTO tajos VALUES
             ('1600_OB5_T-008', 1600, 'OB5', 'T-008', 'ENERO',
@@ -102,7 +101,6 @@ def inicializar_db():
         ON CONFLICT (id) DO NOTHING
     """)
 
-    # Insertar DDH de ejemplo
     cur.execute("""
         INSERT INTO sondajes_ddh
             (tajo_id, codigo_ddh, perforado, fecha_perforacion,
@@ -110,21 +108,16 @@ def inicializar_db():
              leyes_recibidas, modelado, enviado_sst, geologo_responsable)
         VALUES
             ('1600_OB5_T-008', 'DDH-8261', TRUE, '2026-04-10',
-             TRUE, '2026-04-12', TRUE, TRUE,
-             TRUE, TRUE, FALSE, 'Carlos Quispe'),
+             TRUE, '2026-04-12', TRUE, TRUE, TRUE, TRUE, FALSE, 'Carlos Quispe'),
             ('1640_OB5_T-007', 'DDH-8255', TRUE, '2026-04-15',
-             TRUE, '2026-04-17', TRUE, FALSE,
-             FALSE, FALSE, FALSE, 'Maria Huanca'),
+             TRUE, '2026-04-17', TRUE, FALSE, FALSE, FALSE, FALSE, 'Maria Huanca'),
             ('1880_OB6A_T-695', 'DDH-8290', FALSE, NULL,
-             FALSE, NULL, FALSE, FALSE,
-             FALSE, FALSE, FALSE, 'Carlos Quispe'),
+             FALSE, NULL, FALSE, FALSE, FALSE, FALSE, FALSE, 'Carlos Quispe'),
             ('1940_OB13_T-1012', 'DDH-8301', TRUE, '2026-04-20',
-             TRUE, '2026-04-22', FALSE, FALSE,
-             FALSE, FALSE, FALSE, 'Maria Huanca')
+             TRUE, '2026-04-22', FALSE, FALSE, FALSE, FALSE, FALSE, 'Maria Huanca')
         ON CONFLICT DO NOTHING
     """)
 
-    # Insertar usuarios de ejemplo
     cur.execute("""
         INSERT INTO usuarios VALUES
             ('51950156386', 'Giann (Admin)', 'gerente', TRUE),
@@ -136,120 +129,262 @@ def inicializar_db():
     conn.commit()
     cur.close()
     conn.close()
-    print("✅ Base de datos inicializada con datos de ejemplo.")
+    print("✅ Base de datos inicializada.")
 
-# ─── FUNCIONES DE CONSULTA ───────────────────────────────────────────────────
+# ─── CONSULTAS DB ─────────────────────────────────────────────────────────────
 def obtener_rol(telefono):
-    """Devuelve el rol del usuario o None si no está registrado."""
     try:
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT nombre, rol FROM usuarios WHERE telefono = %s AND activo = TRUE", (telefono,))
-        resultado = cur.fetchone()
-        cur.close()
-        conn.close()
-        return resultado  # (nombre, rol) o None
+        cur.execute("SELECT nombre, rol FROM usuarios WHERE telefono=%s AND activo=TRUE", (telefono,))
+        res = cur.fetchone()
+        cur.close(); conn.close()
+        return res
     except:
         return None
 
-def estado_ddh(codigo_ddh):
-    """Devuelve el estado completo de un DDH."""
+def estado_ddh(codigo):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT d.codigo_ddh, t.id as tajo, t.nivel, t.cuerpo,
+        SELECT d.codigo_ddh, t.id, t.nivel, t.cuerpo,
                d.perforado, d.logueado, d.muestreado,
                d.enviado_laboratorio, d.leyes_recibidas,
                d.modelado, d.enviado_sst, d.geologo_responsable
         FROM sondajes_ddh d
         JOIN tajos t ON d.tajo_id = t.id
         WHERE UPPER(d.codigo_ddh) = UPPER(%s)
-    """, (codigo_ddh,))
-    resultado = cur.fetchone()
-    cur.close()
-    conn.close()
-    return resultado
+    """, (codigo,))
+    res = cur.fetchone()
+    cur.close(); conn.close()
+    return res
 
 def estado_tajo(tajo_id):
-    """Devuelve el estado del tajo y sus DDHs."""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
         SELECT t.id, t.nivel, t.cuerpo, t.tonelaje,
                t.zn_pct, t.cu_pct, t.riesgo_final, t.estado_infill,
-               COUNT(d.id) as total_ddh,
-               SUM(CASE WHEN d.modelado THEN 1 ELSE 0 END) as ddh_modelados,
-               SUM(CASE WHEN d.enviado_sst THEN 1 ELSE 0 END) as ddh_sst
+               COUNT(d.id), SUM(CASE WHEN d.modelado THEN 1 ELSE 0 END),
+               SUM(CASE WHEN d.enviado_sst THEN 1 ELSE 0 END)
         FROM tajos t
         LEFT JOIN sondajes_ddh d ON d.tajo_id = t.id
-        WHERE UPPER(t.tajo) = UPPER(%s) OR UPPER(t.id) = UPPER(%s)
+        WHERE UPPER(t.tajo)=UPPER(%s) OR UPPER(t.id)=UPPER(%s)
         GROUP BY t.id, t.nivel, t.cuerpo, t.tonelaje,
                  t.zn_pct, t.cu_pct, t.riesgo_final, t.estado_infill
     """, (tajo_id, tajo_id))
-    resultado = cur.fetchone()
-    cur.close()
-    conn.close()
-    return resultado
+    res = cur.fetchone()
+    cur.close(); conn.close()
+    return res
 
-def actualizar_etapa_ddh(codigo_ddh, etapa, geologo):
-    """Marca una etapa del DDH como completada."""
-    etapas_validas = {
-        'perforado':            ('perforado', 'fecha_perforacion'),
-        'logueado':             ('logueado', 'fecha_logueo'),
-        'muestreado':           ('muestreado', 'fecha_muestreo'),
-        'laboratorio':          ('enviado_laboratorio', 'fecha_envio_lab'),
-        'leyes':                ('leyes_recibidas', None),
-        'modelado':             ('modelado', None),
-        'sst':                  ('enviado_sst', None),
+def actualizar_etapa(codigo, etapa, geologo):
+    etapas = {
+        'perforado':   ('perforado', 'fecha_perforacion'),
+        'logueado':    ('logueado', 'fecha_logueo'),
+        'muestreado':  ('muestreado', 'fecha_muestreo'),
+        'laboratorio': ('enviado_laboratorio', 'fecha_envio_lab'),
+        'leyes':       ('leyes_recibidas', None),
+        'modelado':    ('modelado', None),
+        'sst':         ('enviado_sst', None),
     }
-    if etapa not in etapas_validas:
+    if etapa not in etapas:
         return False
-    campo, campo_fecha = etapas_validas[etapa]
+    campo, campo_fecha = etapas[etapa]
     conn = get_db()
     cur = conn.cursor()
     if campo_fecha:
         cur.execute(f"""
-            UPDATE sondajes_ddh
-            SET {campo} = TRUE, {campo_fecha} = %s,
-                geologo_responsable = %s, actualizado_en = NOW()
-            WHERE UPPER(codigo_ddh) = UPPER(%s)
-        """, (hora_peru().date(), geologo, codigo_ddh))
+            UPDATE sondajes_ddh SET {campo}=TRUE, {campo_fecha}=%s,
+            geologo_responsable=%s, actualizado_en=NOW()
+            WHERE UPPER(codigo_ddh)=UPPER(%s)
+        """, (hora_peru().date(), geologo, codigo))
     else:
         cur.execute(f"""
-            UPDATE sondajes_ddh
-            SET {campo} = TRUE, geologo_responsable = %s, actualizado_en = NOW()
-            WHERE UPPER(codigo_ddh) = UPPER(%s)
-        """, (geologo, codigo_ddh))
-    filas = cur.rowcount
-    conn.commit()
-    cur.close()
-    conn.close()
-    return filas > 0
+            UPDATE sondajes_ddh SET {campo}=TRUE,
+            geologo_responsable=%s, actualizado_en=NOW()
+            WHERE UPPER(codigo_ddh)=UPPER(%s)
+        """, (geologo, codigo))
+    ok = cur.rowcount > 0
+    conn.commit(); cur.close(); conn.close()
+    return ok
 
 def resumen_gerencia():
-    """Resumen ejecutivo para gerencia."""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT
-            COUNT(DISTINCT t.id) as total_tajos,
-            SUM(CASE WHEN t.estado_infill = 'PERFORADO' THEN 1 ELSE 0 END) as perforados,
-            SUM(CASE WHEN t.estado_infill = 'PENDIENTE' THEN 1 ELSE 0 END) as pendientes,
-            SUM(CASE WHEN t.riesgo_final = 'ALTO' THEN 1 ELSE 0 END) as riesgo_alto,
-            COUNT(d.id) as total_ddh,
-            SUM(CASE WHEN d.enviado_sst THEN 1 ELSE 0 END) as completos
-        FROM tajos t
-        LEFT JOIN sondajes_ddh d ON d.tajo_id = t.id
+        SELECT COUNT(DISTINCT t.id),
+               SUM(CASE WHEN t.estado_infill='PERFORADO' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN t.estado_infill='PENDIENTE' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN t.riesgo_final='ALTO' THEN 1 ELSE 0 END),
+               COUNT(d.id),
+               SUM(CASE WHEN d.enviado_sst THEN 1 ELSE 0 END)
+        FROM tajos t LEFT JOIN sondajes_ddh d ON d.tajo_id=t.id
     """)
-    return cur.fetchone()
+    res = cur.fetchone()
+    cur.close(); conn.close()
+    return res
 
-# ─── ENVIAR MENSAJE WHATSAPP ─────────────────────────────────────────────────
+# ─── CLAUDE AI: INTERPRETA LENGUAJE NATURAL ───────────────────────────────────
+def interpretar_con_ia(mensaje, nombre, rol):
+    import json
+    system_prompt = f"""Eres el asistente de gestión minera del proyecto Cerro Lindo (Perú).
+Analiza el mensaje y devuelve SOLO un JSON con esta estructura exacta:
+{{
+  "intencion": "<menu | ddh | tajo | resumen | actualizar | desconocido>",
+  "codigo": "<código DDH normalizado, ej: DDH-8261>",
+  "tajo": "<código de tajo, ej: T-008>",
+  "etapa": "<perforado | logueado | muestreado | laboratorio | leyes | modelado | sst>",
+  "respuesta_libre": "<respuesta corta en español, solo si intencion=desconocido>"
+}}
+
+Reglas de interpretación:
+- "loguear / logueo / logueé / ya loguié" → etapa=logueado
+- "perforar / perforé / terminé de perforar" → etapa=perforado
+- "muestra / muestreo / muestreé" → etapa=muestreado
+- "laboratorio / lab / mandé al lab / envié al lab" → etapa=laboratorio
+- "leyes / resultados del lab / llegaron las leyes" → etapa=leyes
+- "modelo / modelé / modelado" → etapa=modelado
+- "SST / servicios técnicos / envié a SST" → etapa=sst
+- Números solos como "8261" normalizar a "DDH-8261"
+- Usuario actual: {nombre} | Rol: {rol}
+- Devuelve SOLO el JSON sin texto adicional ni backticks."""
+
+    respuesta = cliente_ai.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=300,
+        system=system_prompt,
+        messages=[{"role": "user", "content": mensaje}]
+    )
+    texto = respuesta.content[0].text.strip()
+    texto = texto.replace("```json", "").replace("```", "").strip()
+    return json.loads(texto)
+
+# ─── LÓGICA PRINCIPAL ─────────────────────────────────────────────────────────
+def procesar_mensaje(mensaje, remitente):
+    fecha_hora = hora_peru().strftime("%d/%m/%Y %H:%M")
+    usuario = obtener_rol(remitente)
+
+    if not usuario:
+        return "⛔ Número no registrado en Cerro Lindo.\nContacta al administrador."
+
+    nombre, rol = usuario
+
+    try:
+        intent = interpretar_con_ia(mensaje, nombre, rol)
+        accion = intent.get("intencion", "desconocido")
+
+        # MENÚ
+        if accion == "menu":
+            if rol == "gerente":
+                return (
+                    f"👋 Hola {nombre}!\n📅 {fecha_hora}\n\n"
+                    f"*Panel Gerencia:*\n"
+                    f"📊 _dame el resumen_ → KPIs generales\n"
+                    f"🔍 _estado del tajo T-008_ → Detalle tajo\n"
+                    f"🔍 _cómo va el DDH 8261_ → Estado sondaje"
+                )
+            else:
+                return (
+                    f"👋 Hola {nombre}!\n📅 {fecha_hora}\n\n"
+                    f"*Panel Perforista:*\n"
+                    f"✅ _ya logueé el 8255_ → Marca logueo\n"
+                    f"✅ _terminé de perforar el 8290_ → Marca perforación\n"
+                    f"✅ _mandé el 8255 al lab_ → Marca laboratorio\n"
+                    f"🔍 _cómo va el 8261_ → Ver estado DDH"
+                )
+
+        # CONSULTA DDH
+        elif accion == "ddh":
+            codigo = intent.get("codigo", "")
+            if not codigo:
+                return "❓ ¿De qué sondaje DDH necesitas el estado?"
+            r = estado_ddh(codigo)
+            if not r:
+                return f"❌ No encontré *{codigo}*. Verifica el código."
+            ddh, tajo, nivel, cuerpo, perf, log, mues, lab, leyes, mod, sst, geo = r
+            c = lambda x: "✅" if x else "❌"
+            return (
+                f"🔍 *{ddh}* | {tajo}\n"
+                f"Nivel {nivel} | {cuerpo} | Geólogo: {geo or 'N/A'}\n\n"
+                f"{c(perf)} Perforado\n"
+                f"{c(log)} Logueado\n"
+                f"{c(mues)} Muestreado\n"
+                f"{c(lab)} Enviado a Lab\n"
+                f"{c(leyes)} Leyes recibidas\n"
+                f"{c(mod)} Modelado\n"
+                f"{c(sst)} Enviado a SST"
+            )
+
+        # CONSULTA TAJO
+        elif accion == "tajo":
+            if rol != "gerente":
+                return "⛔ Solo gerencia puede consultar tajos."
+            codigo = intent.get("tajo", "")
+            if not codigo:
+                return "❓ ¿Qué tajo quieres consultar? Ejemplo: T-008"
+            r = estado_tajo(codigo)
+            if not r:
+                return f"❌ No encontré el tajo *{codigo}*."
+            tid, nivel, cuerpo, ton, zn, cu, riesgo, estado, total, mod, sst = r
+            return (
+                f"📋 *{tid}*\n"
+                f"Nivel: {nivel} | Cuerpo: {cuerpo}\n"
+                f"Tonelaje: {ton:,.0f} t\n"
+                f"Zn: {zn:.2f}% | Cu: {cu:.2f}%\n"
+                f"Riesgo: {riesgo or 'Sin definir'} | Infill: {estado}\n\n"
+                f"DDH: {total} total | ✅ Modelados: {mod} | SST: {sst}"
+            )
+
+        # RESUMEN GERENCIA
+        elif accion == "resumen":
+            if rol != "gerente":
+                return "⛔ Solo gerencia puede ver el resumen."
+            r = resumen_gerencia()
+            if not r:
+                return "⚠️ Sin datos disponibles."
+            total, perf, pend, alto, total_ddh, completos = r
+            return (
+                f"📊 *RESUMEN CERRO LINDO*\n📅 {fecha_hora}\n\n"
+                f"*Tajos:* {total} total\n"
+                f"  ✅ Perforados: {perf}\n"
+                f"  ⏳ Pendientes: {pend}\n"
+                f"  🔴 Riesgo alto: {alto}\n\n"
+                f"*Sondajes DDH:* {total_ddh} total\n"
+                f"  ✅ Completos (SST): {completos}/{total_ddh}"
+            )
+
+        # ACTUALIZAR ETAPA
+        elif accion == "actualizar":
+            codigo = intent.get("codigo", "")
+            etapa  = intent.get("etapa", "")
+            if not codigo:
+                return "❓ ¿Qué sondaje DDH quieres actualizar?"
+            if not etapa:
+                return "❓ ¿Qué etapa quieres marcar?\n(perforado, logueado, muestreado, laboratorio, leyes, modelado, sst)"
+            ok = actualizar_etapa(codigo, etapa, nombre)
+            if ok:
+                return (
+                    f"✅ *{codigo}* actualizado\n"
+                    f"   Etapa: *{etapa.upper()}*\n"
+                    f"   Por: {nombre}\n"
+                    f"   📅 {fecha_hora}"
+                )
+            else:
+                return f"❌ No encontré *{codigo}*. Verifica el código."
+
+        # RESPUESTA LIBRE
+        else:
+            return intent.get("respuesta_libre",
+                "🤔 No entendí. Escribe *hola* para ver el menú.")
+
+    except Exception as e:
+        print(f"❌ Error IA: {e}")
+        return "⚠️ Error procesando tu mensaje. Escribe *hola* para ver opciones."
+
+# ─── WHATSAPP ─────────────────────────────────────────────────────────────────
 def enviar_mensaje(telefono, texto):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"}
     data = {
         "messaging_product": "whatsapp",
         "to": telefono,
@@ -257,138 +392,8 @@ def enviar_mensaje(telefono, texto):
         "text": {"body": texto}
     }
     r = requests.post(url, json=data, headers=headers)
-    print(f"WhatsApp API: {r.status_code} → {r.text}")
+    print(f"WhatsApp: {r.status_code}")
 
-# ─── LÓGICA DEL BOT ──────────────────────────────────────────────────────────
-def procesar_mensaje(mensaje, remitente):
-    msg = mensaje.strip().lower()
-    fecha_hora = hora_peru().strftime("%d/%m/%Y %H:%M")
-
-    # Verificar si el usuario está registrado
-    usuario = obtener_rol(remitente)
-
-    # ── USUARIO NO REGISTRADO ────────────────────────────────────────────────
-    if not usuario:
-        return (
-            f"⛔ Número no registrado en el sistema Cerro Lindo.\n"
-            f"Contacta al administrador para registrarte.\n"
-            f"📅 {fecha_hora}"
-        )
-
-    nombre, rol = usuario
-
-    # ── MENÚ PRINCIPAL ───────────────────────────────────────────────────────
-    if any(x in msg for x in ["hola", "inicio", "menu", "menú", "ayuda", "help"]):
-        if rol == "gerente":
-            return (
-                f"👋 Hola {nombre}!\n"
-                f"📅 {fecha_hora} | Cerro Lindo\n\n"
-                f"*Panel Gerencia:*\n"
-                f"📊 Escribe *resumen* → Estado general\n"
-                f"🔍 Escribe *tajo T-008* → Estado de un tajo\n"
-                f"🔍 Escribe *ddh DDH-8261* → Estado de un sondaje"
-            )
-        else:
-            return (
-                f"👋 Hola {nombre}!\n"
-                f"📅 {fecha_hora} | Cerro Lindo\n\n"
-                f"*Panel Perforista:*\n"
-                f"✅ Escribe *perforado DDH-8255* → Marcar como perforado\n"
-                f"✅ Escribe *logueado DDH-8255* → Marcar como logueado\n"
-                f"✅ Escribe *muestreado DDH-8255* → Marcar muestreo\n"
-                f"✅ Escribe *laboratorio DDH-8255* → Enviado a lab\n"
-                f"✅ Escribe *modelado DDH-8255* → Marcado modelado\n"
-                f"✅ Escribe *sst DDH-8255* → Enviado a Serv. Técnicos\n"
-                f"🔍 Escribe *ddh DDH-8255* → Ver estado"
-            )
-
-    # ── CONSULTA DDH ─────────────────────────────────────────────────────────
-    if msg.startswith("ddh "):
-        codigo = mensaje.strip().split(" ", 1)[1].upper()
-        r = estado_ddh(codigo)
-        if not r:
-            return f"❌ No encontré el sondaje *{codigo}*.\nVerifica el código e intenta de nuevo."
-        (ddh, tajo, nivel, cuerpo,
-         perforado, logueado, muestreado,
-         enviado_lab, leyes, modelado, sst, geologo) = r
-        check = lambda x: "✅" if x else "❌"
-        return (
-            f"🔍 *{ddh}* | Tajo: {tajo}\n"
-            f"Nivel: {nivel} | Cuerpo: {cuerpo}\n"
-            f"Geólogo: {geologo or 'No asignado'}\n\n"
-            f"{check(perforado)} Perforado\n"
-            f"{check(logueado)} Logueado\n"
-            f"{check(muestreado)} Muestreado\n"
-            f"{check(enviado_lab)} Enviado a Lab\n"
-            f"{check(leyes)} Leyes recibidas\n"
-            f"{check(modelado)} Modelado\n"
-            f"{check(sst)} Enviado a SST"
-        )
-
-    # ── CONSULTA TAJO (solo gerencia) ────────────────────────────────────────
-    if msg.startswith("tajo ") and rol == "gerente":
-        codigo = mensaje.strip().split(" ", 1)[1].upper()
-        r = estado_tajo(codigo)
-        if not r:
-            return f"❌ No encontré el tajo *{codigo}*."
-        (tid, nivel, cuerpo, ton, zn, cu, riesgo, estado,
-         total_ddh, ddh_mod, ddh_sst) = r
-        return (
-            f"📋 *{tid}*\n"
-            f"Nivel: {nivel} | Cuerpo: {cuerpo}\n"
-            f"Tonelaje: {ton:,.0f} t\n"
-            f"Zn: {zn:.2f}% | Cu: {cu:.2f}%\n"
-            f"Riesgo: {riesgo or 'Sin definir'}\n"
-            f"Infill: {estado}\n\n"
-            f"DDH total: {total_ddh}\n"
-            f"✅ Modelados: {ddh_mod}/{total_ddh}\n"
-            f"✅ Enviados SST: {ddh_sst}/{total_ddh}"
-        )
-
-    # ── RESUMEN GERENCIA ─────────────────────────────────────────────────────
-    if "resumen" in msg and rol == "gerente":
-        r = resumen_gerencia()
-        if not r:
-            return "⚠️ No hay datos disponibles aún."
-        total, perf, pend, alto, total_ddh, completos = r
-        return (
-            f"📊 *RESUMEN CERRO LINDO*\n"
-            f"📅 {fecha_hora}\n\n"
-            f"*Tajos:*\n"
-            f"  Total: {total}\n"
-            f"  ✅ Perforados: {perf}\n"
-            f"  ⏳ Pendientes: {pend}\n"
-            f"  🔴 Riesgo alto: {alto}\n\n"
-            f"*Sondajes DDH:*\n"
-            f"  Total: {total_ddh}\n"
-            f"  ✅ Completos (SST): {completos}/{total_ddh}"
-        )
-
-    # ── ACTUALIZAR ETAPA DDH (solo perforistas) ──────────────────────────────
-    etapas = ["perforado", "logueado", "muestreado", "laboratorio", "leyes", "modelado", "sst"]
-    for etapa in etapas:
-        if msg.startswith(f"{etapa} "):
-            if rol not in ["perforista", "gerente"]:
-                return "⛔ No tienes permisos para actualizar etapas."
-            codigo = mensaje.strip().split(" ", 1)[1].upper()
-            exito = actualizar_etapa_ddh(codigo, etapa, nombre)
-            if exito:
-                return (
-                    f"✅ *{codigo}* actualizado:\n"
-                    f"   Etapa: *{etapa.upper()}*\n"
-                    f"   Por: {nombre}\n"
-                    f"   📅 {fecha_hora}"
-                )
-            else:
-                return f"❌ No encontré el sondaje *{codigo}*.\nVerifica el código."
-
-    # ── COMANDO NO RECONOCIDO ────────────────────────────────────────────────
-    return (
-        f"🤔 No entendí el comando.\n"
-        f"Escribe *menu* para ver las opciones disponibles."
-    )
-
-# ─── WEBHOOK ─────────────────────────────────────────────────────────────────
 @app.route("/webhook", methods=["GET"])
 def verify():
     token = request.args.get("hub.verify_token")
@@ -407,14 +412,14 @@ def webhook():
             remitente = msg_obj['from']
             if msg_obj.get('type') == 'text':
                 mensaje = msg_obj['text']['body']
-                print(f"📨 [{hora_peru().strftime('%H:%M')}] {remitente}: {mensaje}")
+                print(f"📨 {remitente}: {mensaje}")
                 respuesta = procesar_mensaje(mensaje, remitente)
                 enviar_mensaje(remitente, respuesta)
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Webhook error: {e}")
     return jsonify({"status": "ok"}), 200
 
-# ─── INICIO ──────────────────────────────────────────────────────────────────
+# ─── INICIO ───────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     inicializar_db()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
