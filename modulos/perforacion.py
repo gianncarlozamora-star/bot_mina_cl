@@ -2,13 +2,13 @@
 FLUJO DE REPORTE DE AVANCE DE PERFORACIÓN
 Para roles PERFORISTA.
 Pasos: maquina → sondaje → turno → profundidades →
-       observaciones → foto → confirmación
+       observaciones → foto → confirmacion → reporte_empresa
 """
 from db.sesiones import actualizar_sesion, cerrar_sesion
 from db.sondajes import buscar_sondaje, calcular_valor_turno
 from db.conexion import ejecutar
 from db.usuarios import obtener_maquinas_activas
-from ia.interprete import generar_mensaje_estandarizado
+from ia.interprete import generar_mensaje_estandarizado, generar_reporte_empresa
 from config import fecha_hora_str
 from config import hora_peru as _hora
 
@@ -40,6 +40,7 @@ def iniciar(usuario: dict, sesion_id: int) -> str:
         f"{menu}\n\n"
         f"Responde con el número.\n"
     )
+
 
 def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
     paso  = sesion["paso"]
@@ -76,10 +77,10 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         if msg.lower() == "provisional":
             ts = _hora().strftime("%d%m-%H%M")
             bhid_temp = f"TEMP-{datos.get('maquina_cod','X').replace('-','')}-{ts}"
-            datos["bhid"]          = bhid_temp
+            datos["bhid"]           = bhid_temp
             datos["es_provisional"] = True
-            datos["diametro"]      = "NQ"
-            datos["prog_m"]        = 0
+            datos["diametro"]       = "NQ"
+            datos["prog_m"]         = 0
             datos["final_m_actual"] = 0
             actualizar_sesion(sid, "turno", datos)
             return (
@@ -153,10 +154,9 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             return "❓ Ingresa un número válido."
 
         avance = prof_fin - datos["prof_inicio"]
-        datos["avance"]        = round(avance, 2)
-        datos["retorno_fluido"] = "100%"  # default, no se pregunta al perforista
+        datos["avance"]         = round(avance, 2)
+        datos["retorno_fluido"] = "100%"
 
-        # Calcular valor internamente (no se muestra al perforista)
         sufijo = datos.get("sufijo", "")
         diam   = datos.get("diametro", "NQ")
         valor  = calcular_valor_turno(diam, datos["prof_inicio"], prof_fin, sufijo)
@@ -236,27 +236,104 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                 (datos["prof_final"], datos["fecha"], datos["bhid"])
             )
 
-            # Generar mensaje estandarizado para reenvío
-            msg_std = generar_mensaje_estandarizado(datos)
-            cerrar_sesion(usuario["id"])
+            # Generar mensaje individual
+            msg_individual = generar_mensaje_estandarizado(datos)
+            datos["msg_individual"] = msg_individual
+            empresa_nombre = _obtener_empresa(datos)
+            actualizar_sesion(sid, "reporte_empresa", datos)
 
-            respuesta = (
+            return (
                 f"✅ *Reporte registrado exitosamente*\n"
                 f"📅 {fecha_hora_str()}\n\n"
+                f"─────────────────────\n"
+                f"📋 *TU REPORTE:*\n"
+                f"_(Copia y reenvía a tu grupo)_\n\n"
+                f"{msg_individual}\n"
+                f"─────────────────────\n\n"
+                f"¿Quieres generar el *reporte consolidado* de "
+                f"todas las máquinas de *{empresa_nombre}* "
+                f"para este turno?\n"
+                f"  *sí* — Generar\n"
+                f"  *no* — Terminar\n"
             )
-            if msg_std:
-                respuesta += (
-                    f"─────────────────────\n"
-                    f"📋 *MENSAJE PARA TU GRUPO:*\n"
-                    f"_(Copia y reenvía)_\n\n"
-                    f"{msg_std}\n"
-                    f"─────────────────────"
-                )
-            return respuesta
 
         except Exception as e:
             print(f"[PERFORACION] Error: {e}")
             return "⚠️ Error al guardar el reporte. Intenta de nuevo."
+
+    # ── Reporte consolidado por empresa ───────────────────────
+    elif paso == "reporte_empresa":
+        if msg.lower() in ("no", "n", "terminar"):
+            cerrar_sesion(usuario["id"])
+            return "✅ Listo. Escribe *hola* si necesitas algo más."
+
+        if msg.lower() not in ("sí", "si", "yes", "ok"):
+            return "¿Generar reporte empresa? *sí* o *no*."
+
+        try:
+            empresa_id = datos.get("empresa_id", 1)
+            fecha      = datos.get("fecha")
+            turno      = datos.get("turno")
+
+            rows = ejecutar(
+                """SELECT ap.prof_inicio, ap.prof_final, ap.metros_avance,
+                          ap.observaciones, m.codigo, s.bhid,
+                          s.nivel_prog, s.labor, s.diametro, s.profundidad_prog
+                   FROM avance_perforacion ap
+                   JOIN sondajes     s ON ap.sondaje_id = s.id
+                   JOIN cat_maquinas m ON ap.maquina_id = m.id
+                   WHERE m.empresa_id = %s
+                     AND ap.fecha     = %s
+                     AND ap.turno     = %s
+                     AND ap.estado    = 'ACTIVO'
+                   ORDER BY m.codigo""",
+                (empresa_id, fecha, turno), fetchall=True
+            )
+
+            if not rows:
+                cerrar_sesion(usuario["id"])
+                return "⚠️ No hay otros reportes de tu empresa para este turno aún."
+
+            reportes = []
+            for r in rows:
+                reportes.append({
+                    "prof_inicio":   float(r[0] or 0),
+                    "prof_final":    float(r[1] or 0),
+                    "avance":        float(r[2] or 0),
+                    "observaciones": r[3] or "Sin novedades",
+                    "maquina_cod":   r[4],
+                    "bhid":          r[5],
+                    "sondaje_nivel": r[6],
+                    "sondaje_labor": r[7],
+                    "diametro":      r[8],
+                    "prog_m":        r[9],
+                    "turno":         turno,
+                    "fecha":         fecha,
+                })
+
+            emp_row = ejecutar(
+                "SELECT nombre FROM cat_empresas WHERE id = %s",
+                (empresa_id,), fetchone=True
+            )
+            empresa_nombre = emp_row[0] if emp_row else "Empresa"
+
+            reporte_consolidado = generar_reporte_empresa(
+                reportes, empresa_nombre, fecha
+            )
+
+            cerrar_sesion(usuario["id"])
+            return (
+                f"─────────────────────\n"
+                f"🏢 *REPORTE {empresa_nombre.upper()}*\n"
+                f"_(Copia y reenvía al grupo de tu empresa)_\n\n"
+                f"{reporte_consolidado}\n"
+                f"─────────────────────"
+            )
+
+        except Exception as e:
+            print(f"[PERFORACION] Error reporte empresa: {e}")
+            cerrar_sesion(usuario["id"])
+            return "⚠️ Error generando reporte empresa. Tu reporte individual ya fue guardado."
 
     return "❓ Paso no reconocido. Escribe *hola* para reiniciar."
 
@@ -282,3 +359,10 @@ def _obtener_sondaje_id(bhid: str) -> int | None:
         "SELECT id FROM sondajes WHERE bhid = %s", (bhid,), fetchone=True
     )
     return row[0] if row else None
+
+def _obtener_empresa(datos: dict) -> str:
+    row = ejecutar(
+        "SELECT codigo FROM cat_empresas WHERE id = %s",
+        (datos.get("empresa_id", 1),), fetchone=True
+    )
+    return row[0] if row else "tu empresa"
