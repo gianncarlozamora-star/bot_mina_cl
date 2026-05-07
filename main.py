@@ -6,9 +6,9 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 
 # CONFIGURACIÓN
-VERIFY_TOKEN = "Mina_Giann_2026"
-ACCESS_TOKEN = "EAAmlw4rzjS0BRSF9ygexZA2xezhWvNAyOerG575vl2fMGs33fRRj4iUtHG8nHyce3Bc1c9B6OP9HjWap4N4c2ruSrJOTHyovKsRmdwdleqqmQv3JONQpXvodx0R3fHmWH8g0uFzZC6d0y3Y00ZBS93c0QUoCQHXolIKBqf8ayXG9F5u3KgmzReyLcptZAQZDZD" # <--- Pega aquí el Token largo que generaste en Meta
-PHONE_NUMBER_ID = "1106542105873680" # Tu ID que vimos en la imagen anterior
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
+PHONE_NUMBER_ID = os.environ.get("PHONE_NUMBER_ID")
 
 def enviar_mensaje(telefono, texto):
     url = f"https://graph.facebook.com/v18.0/{PHONE_NUMBER_ID}/messages"
