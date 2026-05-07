@@ -10,6 +10,7 @@ from db.conexion import ejecutar
 from db.usuarios import obtener_maquinas_activas
 from ia.interprete import generar_mensaje_estandarizado
 from config import fecha_hora_str, hora_peru
+from config import hora_peru as _hora
 
 FLUJO = "PERFORACION"
 
@@ -101,7 +102,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
     # ── Sondaje provisional ───────────────────────────────────
     elif paso == "sondaje" and msg.lower() == "provisional":
         from config import hora_peru
-        ts = hora_peru().strftime("%d%m-%H%M")
+        ts = _hora().strftime("%d%m-%H%M")
         bhid_temp = f"TEMP-{datos['maquina_cod'].replace('-','')}-{ts}"
         datos["bhid"] = bhid_temp
         datos["es_provisional"] = True
@@ -126,7 +127,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         datos["fecha"] = _hora().strftime("%Y-%m-%d")
         actualizar_sesion(sid, "prof_inicio", datos)
         return (
-            f"✅ Turno: *{turno}* | 📅 {hora_peru().strftime('%d/%m/%Y')}\n\n"
+            f"✅ Turno: *{turno}* | 📅 {_hora().strftime('%d/%m/%Y')}\n\n"
             f"¿*Profundidad inicio* del turno (metros)?\n"
             f"Ejemplo: 182.50\n"
         )
