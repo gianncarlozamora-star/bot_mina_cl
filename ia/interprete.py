@@ -5,6 +5,7 @@ from config import ANTHROPIC_KEY, MODELO_IA
 cliente = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
 
 def interpretar_mensaje(mensaje: str, usuario: dict) -> dict:
+    cliente = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     """
     Interpreta el mensaje en lenguaje natural y retorna un dict con:
     - intencion: matricula | perforacion | sgs | certimin | modelado |
@@ -70,6 +71,7 @@ Devuelve SOLO el JSON sin texto adicional, sin backticks, sin explicaciones."""
         return {"intencion": "desconocido", "respuesta_libre": "No entendí el mensaje."}
 
 def generar_mensaje_estandarizado(datos_turno: dict) -> str:
+    cliente = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     """
     Genera el mensaje estandarizado de reporte de turno para que
     el perforista pueda copiarlo y enviarlo a su grupo de WhatsApp.
@@ -95,6 +97,7 @@ Incluye todos los campos. Sin texto adicional, solo el reporte."""
         return None
 
 def responder_consulta_gerencia(pregunta: str, datos: dict) -> str:
+    cliente = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     """Genera respuesta en lenguaje natural para consultas de gerencia."""
     system = """Eres el asistente de inteligencia de negocios de Cerro Lindo.
 Responde en español de forma clara, concisa y profesional.
