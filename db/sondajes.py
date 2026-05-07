@@ -4,39 +4,43 @@ from config import hora_peru
 # ── BÚSQUEDA ──────────────────────────────────────────────────
 
 def buscar_sondaje(texto: str) -> dict | None:
-    """
-    Busca sondaje por BHID exacto o por los últimos 4 dígitos.
-    Tolera errores en prefijo — los últimos 4 dígitos son confiables.
-    """
     texto = texto.strip().upper().replace(" ", "")
+    
+    # Extraer últimos 4 dígitos
+    digitos = ''.join(filter(str.isdigit, texto))
+    ultimos4 = digitos[-4:] if len(digitos) >= 4 else digitos
 
-    # 1. Búsqueda exacta
+    # Buscar en tabla directa, no en vista
     row = ejecutar(
-        "SELECT * FROM v_estado_sondajes WHERE UPPER(bhid) = %s",
-        (texto,), fetchone=True
+        """SELECT s.bhid, sc.nombre, s.tajo_objetivo, s.cuerpo_objetivo,
+                  s.campana, m.codigo, e.codigo,
+                  s.profundidad_prog, s.profundidad_final,
+                  CASE WHEN s.profundidad_prog > 0 
+                       THEN ROUND((COALESCE(s.profundidad_final,0) / s.profundidad_prog * 100)::numeric, 1)
+                       ELSE 0 END,
+                  s.diametro, s.nivel_prog, s.labor,
+                  s.estado_logueo, s.estado_muestreo, s.estado_rqd,
+                  s.estado_fotografia, s.estado_densidad,
+                  s.estado_laboratorio, s.estado_modelado,
+                  s.fecha_inicio_perf, s.fecha_fin_perf, s.id
+           FROM sondajes s
+           JOIN cat_subcategorias sc ON s.subcategoria_id = sc.id
+           JOIN cat_maquinas m ON s.maquina_id = m.id
+           JOIN cat_empresas e ON s.empresa_id = e.id
+           WHERE s.bhid LIKE %s
+           LIMIT 1""",
+        (f"%{ultimos4}",), fetchone=True
     )
-    if row:
-        return _row_to_dict(row)
-
-    # 2. Solo 4 dígitos finales numéricos
-    digitos = ''.join(filter(str.isdigit, texto))[-4:] if texto else ""
-    if len(digitos) == 4:
-        row = ejecutar(
-            "SELECT * FROM v_estado_sondajes WHERE bhid LIKE %s",
-            (f"%{digitos}",), fetchone=True
-        )
-        if row:
-            return _row_to_dict(row)
-
-    # 3. Búsqueda parcial libre (contiene el texto)
-    row = ejecutar(
-        "SELECT * FROM v_estado_sondajes WHERE UPPER(bhid) LIKE %s LIMIT 1",
-        (f"%{texto[-5:]}%",), fetchone=True
-    )
-    if row:
-        return _row_to_dict(row)
-
-    return None
+    if not row:
+        return None
+    
+    cols = ["bhid","subcategoria","tajo_objetivo","cuerpo_objetivo",
+            "campana","maquina","empresa","prog_m","final_m","avance_pct",
+            "diametro","nivel","labor","estado_logueo","estado_muestreo",
+            "estado_rqd","estado_fotografia","estado_densidad",
+            "estado_laboratorio","estado_modelado",
+            "fecha_inicio_perf","fecha_fin_perf","id"]
+    return dict(zip(cols, row))
 
 def _row_to_dict(row) -> dict:
     cols = [
