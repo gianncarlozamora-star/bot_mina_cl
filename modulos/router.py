@@ -62,7 +62,7 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
     # ── 3. Sesión activa → continuar flujo ───────────────────
     sesion = obtener_sesion(usuario["id"])
     if sesion:
-        return _continuar_flujo(msg_limpio, usuario, sesion)
+        return _continuar_flujo(msg_limpio, usuario, sesion, foto_url)
 
     # ── 4. Sin sesión → interpretar con IA ───────────────────
     intent = interpretar_mensaje(msg_limpio, usuario)
@@ -146,15 +146,15 @@ def _despachar_intencion(accion: str, intent: dict,
         "Escribe *hola* para ver el menú de opciones."
     )
 
-
-def _continuar_flujo(mensaje: str, usuario: dict, sesion: dict) -> str:
+def _continuar_flujo(mensaje: str, usuario: dict, sesion: dict,
+                     foto_url: str = None) -> str:
     flujo = sesion.get("flujo")
 
     if flujo == FLUJOS["MATRICULA"]:
         return mod_matricula.procesar(mensaje, usuario, sesion)
 
     if flujo == FLUJOS["PERFORACION"]:
-        return mod_perforacion.procesar(mensaje, usuario, sesion)
+        return mod_perforacion.procesar(mensaje, usuario, sesion, foto_url)
 
     if flujo == FLUJOS["SGS"]:
         return mod_sgs.procesar(mensaje, usuario, sesion)
@@ -165,7 +165,6 @@ def _continuar_flujo(mensaje: str, usuario: dict, sesion: dict) -> str:
     if flujo == FLUJOS["DESCARGA_EXCEL"]:
         return _procesar_descarga(mensaje, usuario, sesion)
 
-    # Flujo desconocido → cerrar y mostrar menú
     cerrar_sesion(usuario["id"])
     return _menu_rol(usuario)
 
