@@ -93,7 +93,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         return (
             f"✅ Sondaje: *{sondaje['bhid']}*\n"
             f"   Nivel {sondaje.get('nivel','—')} | {sondaje.get('labor','—')}\n"
-            f"   Prog: {sondaje.get('prog_m','—')} m | Actual: {sondaje.get('final_m',0):.1f} m\n\n"
+            f"   Prog: {sondaje.get('prog_m','—')} m | Actual: {sondaje.get('final_m') or 0:.1f} m\n\n"
             f"¿Qué turno reportas?\n"
             f"  *1* — Día\n  *2* — Noche\n"
         )
@@ -122,7 +122,8 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         if not turno:
             return "❓ Responde *1* (Día) o *2* (Noche)."
         datos["turno"] = turno
-        datos["fecha"] = hora_peru().strftime("%Y-%m-%d")
+        from config import hora_peru as _hora
+        datos["fecha"] = _hora().strftime("%Y-%m-%d")
         actualizar_sesion(sid, "prof_inicio", datos)
         return (
             f"✅ Turno: *{turno}* | 📅 {hora_peru().strftime('%d/%m/%Y')}\n\n"
