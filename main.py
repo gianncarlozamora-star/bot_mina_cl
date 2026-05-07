@@ -250,7 +250,7 @@ Reglas de interpretación:
 - Devuelve SOLO el JSON sin texto adicional ni backticks."""
 
     respuesta = cliente_ai.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=300,
         system=system_prompt,
         messages=[{"role": "user", "content": mensaje}]
