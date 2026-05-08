@@ -76,8 +76,15 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         from db.sesiones import actualizar_sesion
         actualizar_sesion(sid, "tipo_sondaje",
                           {"subcat_opciones": [s["codigo"] for s in subcat],
-                           "subcat_ids": [s["id"] for s in subcat]})
+                           "subcat_ids":      [s["id"]     for s in subcat],
+                           "subcat_nombres":  [s["nombre"] for s in subcat]})
         return {"tipo": "interactivo"}
+
+    if accion == "anular":
+        if rol not in ROLES_MATRICULA:
+            return "⛔ Solo geólogos y admin pueden anular sondajes."
+        sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
+        return mod_matricula.iniciar_anulacion(usuario, sid)
 
     if accion == "perforacion":
         if rol not in ROLES_PERFORACION:
@@ -132,6 +139,13 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             return "⛔ El resumen es solo para gerencia y geólogos."
         return mod_gerencia.resumen_general(usuario)
 
+    if accion == "anular_sondaje" or (accion == "desconocido" and
+            any(w in mensaje.lower() for w in ("anular","eliminar","borrar","cancelar sondaje"))):
+        if rol not in ROLES_MATRICULA:
+            return "⛔ Solo geólogos y admin pueden anular sondajes."
+        sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
+        return mod_matricula.iniciar_anulacion(usuario, sid)
+
     if accion == "descarga":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
             return "⛔ La descarga es solo para gerencia y geólogos."
@@ -174,7 +188,7 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
 
     if flujo == FLUJOS["PERFORACION"]:
         resultado = mod_perforacion.procesar(mensaje, usuario, sesion, foto_url)
-        return _enriquecer_perforacion(resultado, paso, sesion["id"], remitente)
+        return _enriquecer_perforacion(resultado, paso, sesion, remitente, sid)
 
     if flujo == FLUJOS["SGS"]:
         return mod_sgs.procesar(mensaje, usuario, sesion)
@@ -196,52 +210,79 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
 
 
 def _enriquecer_matricula(resultado, paso, sesion, remitente, sid):
+    """Lee paso actual de BD y envía interactivo donde aplica."""
+    from db.conexion import ejecutar as _ej
+    row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
+               (sid,), fetchone=True)
+    paso_nuevo = row[0] if row else paso
+
+    if resultado is None:
+        return {"tipo": "interactivo"}  # menú ya enviado
+
+    # Después de confirmar labor → botones diámetro
+    if paso_nuevo == "diametro":
+        if resultado:
+            from main import enviar_mensaje
+            try:
+                enviar_mensaje(remitente, resultado)
+            except:
+                pass
+        menu_diametro(remitente)
+        return {"tipo": "interactivo"}
+
+    # Después de elegir diámetro → lista máquinas
+    if paso_nuevo == "maquina":
+        if resultado:
+            from main import enviar_mensaje
+            try:
+                enviar_mensaje(remitente, resultado)
+            except:
+                pass
+        from db.usuarios import obtener_maquinas_activas
+        maquinas = obtener_maquinas_activas()
+        menu_maquinas(remitente, maquinas,
+                      "¿Qué máquina perfora este sondaje?")
+        return {"tipo": "interactivo"}
+
+    # Resumen final → botones confirmar
+    if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+
+    # Reutilizar BHID anulado → botones sí/no
+    if paso_nuevo == "reutilizar_bhid":
+        botones_si_no(remitente, resultado)
+        return {"tipo": "interactivo"}
+
+    # Confirmar anulación → botones sí/no
+    if paso_nuevo == "anular_confirmar" and isinstance(resultado, str):
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+
+    return resultado
+
+
+def _enriquecer_perforacion(resultado, paso, sesion, remitente, sid):
     """Reemplaza respuestas de texto con interactivos donde aplica."""
     from db.sesiones import obtener_sesion as _get
     sesion_actual = _get(sesion["id"]) or sesion
     paso_nuevo = sesion_actual.get("paso", paso)
 
-    if paso_nuevo == "inclinacion":
-        # Después de pedir azimut viene inclinación — texto libre, no botones
-        return resultado
-    if paso_nuevo == "maquina":
-        from db.usuarios import obtener_maquinas_activas
-        maquinas = obtener_maquinas_activas()
-        menu_maquinas(remitente, maquinas)
-        return {"tipo": "interactivo"}
-    if paso_nuevo == "diametro":
-        menu_diametro(remitente)
-        return {"tipo": "interactivo"}
-    if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
-        botones_confirmar(remitente, resultado)
-        return {"tipo": "interactivo"}
-    return resultado
-
-
-def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
-    """Lee el paso ACTUAL de BD después de que el módulo lo actualizó."""
-    from db.conexion import ejecutar
-    row = ejecutar(
-        "SELECT paso_actual FROM sesiones_bot WHERE id = %s",
-        (sesion_id,), fetchone=True
-    )
-    paso_nuevo = row[0] if row else paso_anterior
-
-    if paso_nuevo == "sondaje":
-        return resultado
     if paso_nuevo == "turno":
         botones_turno(remitente)
         return {"tipo": "interactivo"}
     if paso_nuevo == "foto":
         botones(remitente,
-                "📸 ¿Adjuntar foto?\nEnvía la foto o presiona No.",
+                "📸 ¿Adjuntar foto de la última caja o tramo?\n"
+                "Envía la foto ahora o presiona No.",
                 ["No"])
         return {"tipo": "interactivo"}
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
-    if paso_nuevo == "reporte_empresa":
-        botones_si_no_fin(remitente, "¿Generar reporte consolidado?")
+    if paso_nuevo == "reporte_empresa" and isinstance(resultado, str):
+        botones_si_no_fin(remitente,
+                          "¿Generar reporte consolidado de tu empresa?")
         return {"tipo": "interactivo"}
     if paso_nuevo == "post_consolidado":
         botones_si_no(remitente, "¿Registrar otra máquina?")
