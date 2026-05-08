@@ -215,50 +215,44 @@ def _enriquecer_matricula(resultado, paso, sesion, remitente, sid):
                (sid,), fetchone=True)
     paso_nuevo = row[0] if row else paso
 
-    # Pasos de anulación — no interceptar, dejar pasar directo
-    if paso in ("anular_buscar", "anular_confirmar"):
+    # Pasos de anulación — pasar directo sin interceptar
+    if paso in ("anular_buscar", "anular_confirmar") or \
+       paso_nuevo in ("anular_buscar", "anular_confirmar"):
         return resultado
 
     if resultado is None:
         return {"tipo": "interactivo"}
-    # Después de confirmar labor → botones diámetro
+
+    # Después de labor → botones diámetro
     if paso_nuevo == "diametro":
-        if resultado:
-            from main import enviar_mensaje
-            try:
-                enviar_mensaje(remitente, resultado)
-            except:
-                pass
+        from main import enviar_mensaje as _send
+        try: _send(remitente, resultado)
+        except: pass
         menu_diametro(remitente)
         return {"tipo": "interactivo"}
 
-    # Después de elegir diámetro → lista máquinas
+    # Después de diámetro → lista máquinas
     if paso_nuevo == "maquina":
-        if resultado:
-            from main import enviar_mensaje
-            try:
-                enviar_mensaje(remitente, resultado)
-            except:
-                pass
+        from main import enviar_mensaje as _send
+        try: _send(remitente, resultado)
+        except: pass
         from db.usuarios import obtener_maquinas_activas
         maquinas = obtener_maquinas_activas()
-        menu_maquinas(remitente, maquinas,
-                      "¿Qué máquina perfora este sondaje?")
+        menu_maquinas(remitente, maquinas, "¿Qué máquina perfora este sondaje?")
         return {"tipo": "interactivo"}
 
-    # Resumen final → botones confirmar
+    # Después de elegir máquina → paso es codigo_ddh, dejar como texto
+    if paso_nuevo == "codigo_ddh":
+        return resultado
+
+    # Resumen → botones confirmar
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
 
-    # Reutilizar BHID anulado → botones sí/no
+    # Reutilizar BHID anulado
     if paso_nuevo == "reutilizar_bhid":
         botones_si_no(remitente, resultado)
-        return {"tipo": "interactivo"}
-
-    # Confirmar anulación → botones sí/no
-    if paso_nuevo == "anular_confirmar" and isinstance(resultado, str):
-        botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
 
     return resultado
