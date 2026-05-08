@@ -491,3 +491,25 @@ def _obtener_cat_id() -> int:
         fetchone=True
     )
     return row[0] if row else 1
+
+def _sondaje_activo_en_maquina_mat(maquina_id: int) -> dict | None:
+    """Retorna el sondaje EN_CURSO de una máquina (para matriculación)."""
+    if not maquina_id:
+        return None
+    row = ejecutar(
+        """SELECT s.bhid, s.profundidad_prog, s.profundidad_final,
+                  s.tajo_objetivo, s.cuerpo_objetivo
+           FROM sondajes s
+           WHERE s.maquina_id = %s
+             AND s.estado_perforacion = 'EN_CURSO'
+           ORDER BY s.fecha_inicio_perf DESC LIMIT 1""",
+        (maquina_id,), fetchone=True
+    )
+    if not row:
+        return None
+    return {
+        "bhid":     row[0],
+        "prog_m":   float(row[1] or 0),
+        "final_m":  float(row[2] or 0),
+        "objetivo": row[3] or row[4] or "—",
+    }
