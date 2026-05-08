@@ -175,3 +175,44 @@ def consulta_libre_gerencia(pregunta: str, usuario: dict) -> str:
         "resumen_general": resumen_campana(),
     }
     return responder_consulta_gerencia(pregunta, datos)
+
+def consultar_foto(texto: str, usuario: dict) -> str:
+    """Busca y retorna la URL de foto de un sondaje."""
+    from db.sondajes import buscar_sondaje
+    
+    # Extraer código del sondaje del texto
+    sondaje = buscar_sondaje(texto)
+    if not sondaje:
+        return f"❌ No encontré el sondaje. Especifica el código, ej: *foto del 9999*"
+    
+    bhid = sondaje["bhid"]
+    rows = ejecutar(
+        """SELECT foto_url, foto_tramo, fecha, turno, m.codigo
+           FROM avance_perforacion ap
+           JOIN cat_maquinas m ON ap.maquina_id = m.id
+           WHERE ap.sondaje_id = (SELECT id FROM sondajes WHERE bhid = %s)
+             AND ap.foto_url IS NOT NULL
+           ORDER BY ap.creado_en DESC""",
+        (bhid,), fetchall=True
+    )
+    if not rows:
+        return f"📸 No hay fotos registradas para *{bhid}*."
+    
+    if len(rows) == 1:
+        url, tramo, fecha, turno, maq = rows[0]
+        return {
+            "tipo":    "imagen",
+            "url":     url,
+            "caption": f"📸 {bhid} | {maq} | Tramo {tramo} | {turno} {fecha}"
+        }
+    
+    # Múltiples fotos — mostrar lista
+    lista = "\n".join([
+        f"  {i+1}. {r[3]} {r[2]} — {r[4]} tramo {r[1]}"
+        for i, r in enumerate(rows[:5])
+    ])
+    return (
+        f"📸 *Fotos de {bhid}* ({len(rows)} registradas)\n\n"
+        f"{lista}\n\n"
+        f"¿Cuál quieres ver? Responde con el número."
+    )
