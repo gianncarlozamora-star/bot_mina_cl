@@ -174,7 +174,7 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
 
     if flujo == FLUJOS["PERFORACION"]:
         resultado = mod_perforacion.procesar(mensaje, usuario, sesion, foto_url)
-        return _enriquecer_perforacion(resultado, paso, sesion, remitente, sid)
+        return _enriquecer_perforacion(resultado, paso, sesion["id"], remitente)
 
     if flujo == FLUJOS["SGS"]:
         return mod_sgs.procesar(mensaje, usuario, sesion)
@@ -218,28 +218,30 @@ def _enriquecer_matricula(resultado, paso, sesion, remitente, sid):
     return resultado
 
 
-def _enriquecer_perforacion(resultado, paso, sesion, remitente, sid):
-    from db.sesiones import obtener_sesion as _get
-    sesion_actual = _get(sid) or sesion  # ← usar sid no sesion["id"]
-    paso_nuevo = sesion_actual.get("paso", paso)
+def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
+    """Lee el paso ACTUAL de BD después de que el módulo lo actualizó."""
+    from db.conexion import ejecutar
+    row = ejecutar(
+        "SELECT paso_actual FROM sesiones_bot WHERE id = %s",
+        (sesion_id,), fetchone=True
+    )
+    paso_nuevo = row[0] if row else paso_anterior
 
-    if paso_nuevo == "sondaje":  # ← después de elegir máquina viene sondaje
-        return resultado         # ← dejar como texto, no volver a mostrar máquinas
+    if paso_nuevo == "sondaje":
+        return resultado
     if paso_nuevo == "turno":
         botones_turno(remitente)
         return {"tipo": "interactivo"}
     if paso_nuevo == "foto":
         botones(remitente,
-                "📸 ¿Adjuntar foto de la última caja o tramo?\n"
-                "Envía la foto ahora o presiona No.",
+                "📸 ¿Adjuntar foto?\nEnvía la foto o presiona No.",
                 ["No"])
         return {"tipo": "interactivo"}
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
-    if paso_nuevo == "reporte_empresa" and isinstance(resultado, str):
-        botones_si_no_fin(remitente,
-                          "¿Generar reporte consolidado de tu empresa?")
+    if paso_nuevo == "reporte_empresa":
+        botones_si_no_fin(remitente, "¿Generar reporte consolidado?")
         return {"tipo": "interactivo"}
     if paso_nuevo == "post_consolidado":
         botones_si_no(remitente, "¿Registrar otra máquina?")
