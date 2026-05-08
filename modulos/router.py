@@ -35,7 +35,6 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         )
 
     actualizar_ultimo_acceso(usuario["id"])
-
     msg_limpio = mensaje.strip()
 
     # ── Comandos globales ─────────────────────────────────────
@@ -55,7 +54,6 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
     # ── Sin sesión → interpretar con IA ──────────────────────
     intent = interpretar_mensaje(msg_limpio, usuario)
     accion = intent.get("intencion", "desconocido")
-
     return _despachar_intencion(accion, intent, msg_limpio, remitente, usuario)
 
 
@@ -66,49 +64,50 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         menu_principal_rol(remitente, usuario)
         return {"tipo": "interactivo"}
 
-    if accion == "matricula":
+    if accion == "matricula" or mensaje.lower() in ("matricular", "matricula"):
         if rol not in ROLES_MATRICULA:
             return "⛔ Solo los geólogos de Nexa pueden matricular sondajes."
         sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
-        menu_tipo_sondaje(remitente)
         from db.sondajes import obtener_subcategorias_activas
-        subcat = obtener_subcategorias_activas()
         from db.sesiones import actualizar_sesion
+        subcat = obtener_subcategorias_activas()
         actualizar_sesion(sid, "tipo_sondaje",
                           {"subcat_opciones": [s["codigo"] for s in subcat],
                            "subcat_ids":      [s["id"]     for s in subcat],
                            "subcat_nombres":  [s["nombre"] for s in subcat]})
+        menu_tipo_sondaje(remitente)
         return {"tipo": "interactivo"}
 
-    if accion == "anular":
+    if accion == "anular" or any(w in mensaje.lower()
+            for w in ("anular", "eliminar sondaje", "borrar sondaje")):
         if rol not in ROLES_MATRICULA:
             return "⛔ Solo geólogos y admin pueden anular sondajes."
         sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
         return mod_matricula.iniciar_anulacion(usuario, sid)
 
-    if accion == "perforacion":
+    if accion == "perforacion" or mensaje.lower() == "perforacion":
         if rol not in ROLES_PERFORACION:
             return "⛔ Este flujo es solo para perforistas."
         sid = crear_sesion(usuario["id"], FLUJOS["PERFORACION"])
         from db.usuarios import obtener_maquinas_activas
-        maquinas = obtener_maquinas_activas()
-        menu_maquinas(remitente, maquinas)
         from db.sesiones import actualizar_sesion
+        maquinas = obtener_maquinas_activas()
         actualizar_sesion(sid, "maquina",
                           {"maquina_opciones": [(m["id"], m["codigo"],
                                                  m["empresa"]) for m in maquinas]})
+        menu_maquinas(remitente, maquinas)
         return {"tipo": "interactivo"}
 
-    if accion == "sgs":
+    if accion == "sgs" or mensaje.lower() in ("sgs", "logueo", "muestreo", "rqd"):
         if rol not in ROLES_SGS:
             return "⛔ Este flujo es solo para técnicos SGS."
         sid = crear_sesion(usuario["id"], FLUJOS["SGS"])
-        menu_etapas_sgs(remitente)
         from db.sesiones import actualizar_sesion
         actualizar_sesion(sid, "tipo_etapa", {})
+        menu_etapas_sgs(remitente)
         return {"tipo": "interactivo"}
 
-    if accion == "certimin":
+    if accion == "certimin" or mensaje.lower() == "certimin":
         if rol not in ROLES_CERTIMIN:
             return "⛔ Este flujo es solo para Certimin."
         sid = crear_sesion(usuario["id"], FLUJOS["CERTIMIN"])
@@ -139,20 +138,13 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             return "⛔ El resumen es solo para gerencia y geólogos."
         return mod_gerencia.resumen_general(usuario)
 
-    if accion == "anular_sondaje" or (accion == "desconocido" and
-            any(w in mensaje.lower() for w in ("anular","eliminar","borrar","cancelar sondaje"))):
-        if rol not in ROLES_MATRICULA:
-            return "⛔ Solo geólogos y admin pueden anular sondajes."
-        sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
-        return mod_matricula.iniciar_anulacion(usuario, sid)
-
     if accion == "descarga":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
             return "⛔ La descarga es solo para gerencia y geólogos."
-        menu_descarga(remitente)
         sid = crear_sesion(usuario["id"], FLUJOS["DESCARGA_EXCEL"])
         from db.sesiones import actualizar_sesion
         actualizar_sesion(sid, "tipo_reporte", {})
+        menu_descarga(remitente)
         return {"tipo": "interactivo"}
 
     respuesta_libre = intent.get("respuesta_libre", "")
@@ -169,26 +161,26 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
     datos = sesion.get("datos", {})
     sid   = sesion["id"]
 
-    # Manejar IDs especiales de máquinas desde lista interactiva
+    # Normalizar IDs de máquinas desde lista interactiva
     if mensaje.startswith("__maq_id_"):
         try:
-            maq_id = int(mensaje.replace("__maq_id_", ""))
-            opciones = datos.get("maquina_opciones", [])
-            for i, op in enumerate(opciones):
-                if op[0] == maq_id:
+            maq_id   = int(mensaje.replace("__maq_id_", ""))
+            from db.usuarios import obtener_maquinas_activas
+            maquinas = obtener_maquinas_activas()
+            for i, m in enumerate(maquinas):
+                if m["id"] == maq_id:
                     mensaje = str(i + 1)
                     break
         except:
             pass
 
     if flujo == FLUJOS["MATRICULA"]:
-        # Inyectar botones interactivos en pasos clave
         resultado = mod_matricula.procesar(mensaje, usuario, sesion)
-        return _enriquecer_matricula(resultado, paso, sesion, remitente, sid)
+        return _enriquecer_matricula(resultado, paso, sid, remitente)
 
     if flujo == FLUJOS["PERFORACION"]:
         resultado = mod_perforacion.procesar(mensaje, usuario, sesion, foto_url)
-        return _enriquecer_perforacion(resultado, paso, sesion, remitente, sid)
+        return _enriquecer_perforacion(resultado, paso, sid, remitente)
 
     if flujo == FLUJOS["SGS"]:
         return mod_sgs.procesar(mensaje, usuario, sesion)
@@ -201,56 +193,56 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
         return _procesar_descarga(mensaje, usuario, sesion)
 
     if flujo == "9":  # Selección de foto
-        resultado = mod_gerencia.consultar_foto(mensaje, usuario, sesion)
-        return resultado
+        return mod_gerencia.consultar_foto(mensaje, usuario, sesion)
 
     cerrar_sesion(usuario["id"])
     menu_principal_rol(remitente, usuario)
     return {"tipo": "interactivo"}
 
 
-def _enriquecer_matricula(resultado, paso, sesion, remitente, sid):
+# ── ENRICHERS ─────────────────────────────────────────────────
+# Leen el paso NUEVO de BD (después de que el módulo lo actualizó)
+# y envían el interactivo correspondiente.
+
+def _enriquecer_matricula(resultado, paso_anterior, sesion_id, remitente):
     from db.conexion import ejecutar as _ej
     row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
-               (sid,), fetchone=True)
-    paso_nuevo = row[0] if row else paso
+               (sesion_id,), fetchone=True)
+    paso_nuevo = row[0] if row else paso_anterior
 
     # Pasos de anulación — pasar directo sin interceptar
-    if paso in ("anular_buscar", "anular_confirmar") or \
-       paso_nuevo in ("anular_buscar", "anular_confirmar"):
+    if paso_anterior in ("anular_buscar", "anular_confirmar") or \
+       paso_nuevo    in ("anular_buscar", "anular_confirmar"):
         return resultado
 
+    # Menú ya enviado por el router
     if resultado is None:
         return {"tipo": "interactivo"}
 
-    # Después de labor → botones diámetro
+    # labor completado → mostrar botones de diámetro
     if paso_nuevo == "diametro":
-        from main import enviar_mensaje as _send
-        try: _send(remitente, resultado)
-        except: pass
+        _enviar_texto(remitente, resultado)
         menu_diametro(remitente)
         return {"tipo": "interactivo"}
 
-    # Después de diámetro → lista máquinas
+    # diámetro completado → mostrar lista de máquinas
     if paso_nuevo == "maquina":
-        from main import enviar_mensaje as _send
-        try: _send(remitente, resultado)
-        except: pass
+        _enviar_texto(remitente, resultado)
         from db.usuarios import obtener_maquinas_activas
         maquinas = obtener_maquinas_activas()
         menu_maquinas(remitente, maquinas, "¿Qué máquina perfora este sondaje?")
         return {"tipo": "interactivo"}
 
-    # Después de elegir máquina → paso es codigo_ddh, dejar como texto
+    # máquina completada → código DDH (texto libre, no interceptar)
     if paso_nuevo == "codigo_ddh":
         return resultado
 
-    # Resumen → botones confirmar
+    # confirmación → botones confirmar/cancelar
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
 
-    # Reutilizar BHID anulado
+    # reutilizar BHID anulado → botones sí/no
     if paso_nuevo == "reutilizar_bhid":
         botones_si_no(remitente, resultado)
         return {"tipo": "interactivo"}
@@ -258,12 +250,14 @@ def _enriquecer_matricula(resultado, paso, sesion, remitente, sid):
     return resultado
 
 
-def _enriquecer_perforacion(resultado, paso, sesion, remitente, sid):
-    """Reemplaza respuestas de texto con interactivos donde aplica."""
-    from db.sesiones import obtener_sesion as _get
-    sesion_actual = _get(sesion["id"]) or sesion
-    paso_nuevo = sesion_actual.get("paso", paso)
+def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
+    from db.conexion import ejecutar as _ej
+    row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
+               (sesion_id,), fetchone=True)
+    paso_nuevo = row[0] if row else paso_anterior
 
+    if paso_nuevo == "sondaje":
+        return resultado
     if paso_nuevo == "turno":
         botones_turno(remitente)
         return {"tipo": "interactivo"}
@@ -276,9 +270,8 @@ def _enriquecer_perforacion(resultado, paso, sesion, remitente, sid):
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
-    if paso_nuevo == "reporte_empresa" and isinstance(resultado, str):
-        botones_si_no_fin(remitente,
-                          "¿Generar reporte consolidado de tu empresa?")
+    if paso_nuevo == "reporte_empresa":
+        botones_si_no_fin(remitente, "¿Generar reporte consolidado de tu empresa?")
         return {"tipo": "interactivo"}
     if paso_nuevo == "post_consolidado":
         botones_si_no(remitente, "¿Registrar otra máquina?")
@@ -296,18 +289,19 @@ def _enriquecer_certimin(resultado, paso, remitente):
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
     if isinstance(resultado, str) and "¿Qué quieres confirmar?" in resultado:
-        botones(remitente, resultado,
-                ["📦 Recepción", "📊 Resultados"])
+        botones(remitente, resultado, ["📦 Recepción", "📊 Resultados"])
         return {"tipo": "interactivo"}
     return resultado
 
+
+# ── DESCARGA ──────────────────────────────────────────────────
 
 def _procesar_descarga(mensaje, usuario, sesion):
     from db.sesiones import actualizar_sesion
     from reportes.exportar import generar_avance_diario, generar_estado_sondajes
     from config import hora_peru as _hora
 
-    paso  = sesion["paso"]
+    paso = sesion["paso"]
     datos = sesion["datos"]
     sid   = sesion["id"]
     msg   = mensaje.strip()
@@ -316,16 +310,14 @@ def _procesar_descarga(mensaje, usuario, sesion):
         if msg == "1":
             datos_excel = generar_avance_diario()
             cerrar_sesion(usuario["id"])
-            if datos_excel:
-                return _entregar_excel(datos_excel,
-                    f"Avance_{_hora().strftime('%m%Y')}.xlsx", usuario)
-            return "⚠️ Error generando Excel."
+            return _entregar_excel(datos_excel,
+                f"Avance_{_hora().strftime('%m%Y')}.xlsx") if datos_excel \
+                else "⚠️ Error generando Excel."
         elif msg == "2":
             datos_excel = generar_estado_sondajes()
             cerrar_sesion(usuario["id"])
-            if datos_excel:
-                return _entregar_excel(datos_excel, "Estado_Sondajes.xlsx", usuario)
-            return "⚠️ Error generando Excel."
+            return _entregar_excel(datos_excel, "Estado_Sondajes.xlsx") if datos_excel \
+                else "⚠️ Error generando Excel."
         elif msg == "3":
             actualizar_sesion(sid, "mes_especifico", datos)
             return "¿Qué mes? (número 1-12)\nEjemplo: *5* para mayo"
@@ -338,18 +330,17 @@ def _procesar_descarga(mensaje, usuario, sesion):
                 raise ValueError
         except:
             return "❓ Número del 1 al 12."
-        anio = _hora().year
+        anio        = _hora().year
         datos_excel = generar_avance_diario(mes, anio)
         cerrar_sesion(usuario["id"])
-        if datos_excel:
-            return _entregar_excel(datos_excel, f"Avance_{mes:02d}{anio}.xlsx", usuario)
-        return "⚠️ Error generando Excel."
+        return _entregar_excel(datos_excel, f"Avance_{mes:02d}{anio}.xlsx") if datos_excel \
+            else "⚠️ Error generando Excel."
 
     cerrar_sesion(usuario["id"])
     return "❓ Opción no válida."
 
 
-def _entregar_excel(datos_bytes, nombre, usuario):
+def _entregar_excel(datos_bytes, nombre):
     try:
         with open(f"/tmp/{nombre}", "wb") as f:
             f.write(datos_bytes)
@@ -363,3 +354,14 @@ def _entregar_excel(datos_bytes, nombre, usuario):
     except Exception as e:
         print(f"[DESCARGA] Error: {e}")
         return "⚠️ Error generando el archivo."
+
+
+def _enviar_texto(remitente, texto):
+    """Envía un mensaje de texto simple (helper interno)."""
+    if not texto:
+        return
+    try:
+        from main import enviar_mensaje
+        enviar_mensaje(remitente, texto)
+    except Exception as e:
+        print(f"[ROUTER] Error enviando texto: {e}")
