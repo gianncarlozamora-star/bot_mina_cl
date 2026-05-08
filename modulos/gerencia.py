@@ -176,6 +176,50 @@ def consulta_libre_gerencia(pregunta: str, usuario: dict) -> str:
     }
     return responder_consulta_gerencia(pregunta, datos)
 
+# ── AGREGAR AL FINAL DE modulos/gerencia.py ──────────────────
+
+def sondajes_en_curso(usuario: dict) -> str:
+    """Lista de sondajes actualmente en perforación."""
+    rows = ejecutar(
+        """SELECT bhid, maquina, empresa, nivel, labor,
+                  prog_m, final_m, avance_pct, diametro,
+                  tajo_objetivo, cuerpo_objetivo, ultimo_reporte
+           FROM v_sondajes_en_curso
+           ORDER BY empresa, maquina""",
+        fetchall=True
+    )
+    if not rows:
+        return "📋 No hay sondajes en perforación actualmente."
+
+    total      = len(rows)
+    metros_tot = sum(float(r[6] or 0) for r in rows)
+
+    detalle        = ""
+    empresa_actual = ""
+    for r in rows:
+        bhid, maq, emp, nivel, labor, prog, final, avpct, diam, tajo, cuerpo, ult_rep = r
+        if emp != empresa_actual:
+            empresa_actual = emp
+            detalle += f"\n*{emp}:*\n"
+        objetivo = tajo or cuerpo or "—"
+        pct      = f"{float(avpct or 0):.0f}%"
+        ult      = str(ult_rep)[:10] if ult_rep else "sin reporte"
+        detalle += (
+            f"  🔖 *{bhid}* → {objetivo}\n"
+            f"     {maq} | Nv.{nivel} | {diam}\n"
+            f"     {float(final or 0):.1f}/{float(prog or 0):.1f} m ({pct}) | {ult}\n"
+        )
+
+    return (
+        f"⛏️ *SONDAJES EN PERFORACIÓN*\n"
+        f"{'─'*30}\n"
+        f"Total activos: *{total}*\n"
+        f"Metros acumulados: *{metros_tot:,.1f} m*\n"
+        f"{'─'*30}\n"
+        f"{detalle}\n"
+        f"📅 {fecha_hora_str()}"
+    )
+
 def consultar_foto(texto: str, usuario: dict, sesion=None) -> str:
     from db.sondajes import buscar_sondaje
     from db.sesiones import crear_sesion, actualizar_sesion, cerrar_sesion
