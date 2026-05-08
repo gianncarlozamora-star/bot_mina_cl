@@ -41,6 +41,7 @@ FLUJOS = {
     "MODELAMIENTO":    "5",
     "CONSULTA":        "6",
     "DESCARGA_EXCEL":  "7",
+    "FOTO": "9",
 }
 
 # ── TIMEOUT DE SESIÓN (minutos) ───────────────────────────────
