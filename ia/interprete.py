@@ -32,6 +32,7 @@ INTENCIONES VÁLIDAS:
 - descarga       → quiere descargar Excel o reporte
 - menu           → saludo, ayuda, menú, inicio, hola, opciones
 - desconocido    → no encaja en ninguna categoría anterior
+- consulta_foto  → quiere ver una foto registrada de un sondaje
 
 REGLAS DE NORMALIZACIÓN DE BHID:
 - "8422", "el 8422", "pecld8422", "PECLD-08422" → "PECLD08422"
