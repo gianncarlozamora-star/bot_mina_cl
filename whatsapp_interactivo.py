@@ -186,32 +186,31 @@ def menu_principal_rol(telefono: str, usuario: dict):
 
 
 def menu_maquinas(telefono: str, maquinas: list, texto: str = "¿Con qué máquina trabajas?"):
-    """Lista de máquinas agrupadas por empresa."""
-    explomin     = [m for m in maquinas if m["empresa"] == "EXPLOMIN"]
-    explodrilling= [m for m in maquinas if m["empresa"] == "EXPLODRILLING"]
-    otros        = [m for m in maquinas if m["empresa"] not in ("EXPLOMIN","EXPLODRILLING")]
+    """Lista numerada de máquinas como texto simple."""
+    from main import enviar_mensaje
+    explomin      = [m for m in maquinas if m["empresa"] == "EXPLOMIN"]
+    explodrilling = [m for m in maquinas if m["empresa"] == "EXPLODRILLING"]
+    otros         = [m for m in maquinas if m["empresa"] not in ("EXPLOMIN", "EXPLODRILLING")]
 
-    secciones = []
+    lineas = [f"*{texto}*\n"]
+    i = 1
     if explomin:
-        secciones.append({
-            "titulo": "EXPLOMIN",
-            "items": [{"id": f"maq_{m['id']}", "titulo": m["codigo"],
-                       "desc": "Explomin"} for m in explomin]
-        })
+        lineas.append("*EXPLOMIN:*")
+        for m in explomin:
+            lineas.append(f"  *{i}* — {m['codigo']}")
+            i += 1
     if explodrilling:
-        secciones.append({
-            "titulo": "EXPLODRILLING",
-            "items": [{"id": f"maq_{m['id']}", "titulo": m["codigo"],
-                       "desc": "Explodrilling"} for m in explodrilling]
-        })
+        lineas.append("\n*EXPLODRILLING:*")
+        for m in explodrilling:
+            lineas.append(f"  *{i}* — {m['codigo']}")
+            i += 1
     if otros:
-        secciones.append({
-            "titulo": "OTRAS",
-            "items": [{"id": f"maq_{m['id']}", "titulo": m["codigo"],
-                       "desc": m["empresa"]} for m in otros]
-        })
-
-    return lista(telefono, texto, secciones, boton_texto="Seleccionar máquina")
+        lineas.append("\n*OTRAS:*")
+        for m in otros:
+            lineas.append(f"  *{i}* — {m['codigo']}")
+            i += 1
+    lineas.append(f"\nResponde con el número.")
+    enviar_mensaje(telefono, "\n".join(lineas))
 
 
 def botones_turno(telefono: str, texto: str = "¿Qué turno reportas?"):
