@@ -1,10 +1,9 @@
 """
-FLUJO DE REPORTE DE AVANCE DE PERFORACIÓN v2
-Incluye:
-- Validación máquina vs sondaje matriculado
-- Estado de perforación (PLANIFICADO/EN_CURSO/FINALIZADO)
-- Cambio de línea con metro exacto
-- Detección automática de sondaje finalizado
+FLUJO DE REPORTE DE AVANCE DE PERFORACIÓN v3
+Fixes:
+1. Validación máquina: muestra sondaje activo de esa máquina
+2. Flujo post-consolidado corregido
+3. Advertencia en sondaje provisional si máquina tiene activo
 """
 from db.sesiones import actualizar_sesion, cerrar_sesion
 from db.sondajes import buscar_sondaje, calcular_valor_turno
@@ -101,38 +100,56 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
 
         sondaje = buscar_sondaje(msg)
         if not sondaje:
-            return f"❌ No encontré *{msg}*. Verifica o escribe *provisional*.\n"
+            # Mostrar sondaje activo en esta máquina
+            activo = _sondaje_activo_en_maquina(datos.get("maquina_id"))
+            if activo:
+                return (
+                    f"❌ No encontré *{msg}*.\n\n"
+                    f"La máquina *{datos.get('maquina_cod','—')}* "
+                    f"tiene activo:\n"
+                    f"  🔖 *{activo['bhid']}* | {activo['objetivo']}\n"
+                    f"  📏 {activo['final_m']:.1f}/{activo['prog_m']:.1f} m\n\n"
+                    f"¿Era ese? Escríbelo de nuevo o usa *{activo['bhid'][-4:]}*\n"
+                )
+            return f"❌ No encontré *{msg}*. Verifica el código o escribe *provisional*.\n"
 
-        # Validar estado de perforación
-        estado_perf = _obtener_estado_perforacion(sondaje["bhid"])
+        # Validar estado
+        estado_perf = sondaje.get("estado_perforacion") or \
+                      _obtener_estado_perforacion(sondaje["bhid"])
         if estado_perf == "FINALIZADO":
             return (
-                f"⛔ *{sondaje['bhid']}* está marcado como *FINALIZADO*.\n\n"
-                f"Si hay un error, contacta al geólogo para reactivarlo.\n"
-            )
-        if estado_perf == "SUSPENDIDO":
-            return (
-                f"⚠️ *{sondaje['bhid']}* está *SUSPENDIDO*.\n\n"
-                f"¿Deseas reportar avance de todas formas? (*sí* / *no*)\n"
+                f"⛔ *{sondaje['bhid']}* está *FINALIZADO*.\n\n"
+                f"Contacta al geólogo si hay un error.\n"
             )
 
         # Validar máquina vs sondaje matriculado
         maq_matriculada = _obtener_maquina_sondaje(sondaje["bhid"])
         maq_actual      = datos.get("maquina_cod", "")
         if maq_matriculada and maq_matriculada != maq_actual:
-            datos["bhid"]              = sondaje["bhid"]
-            datos["maquina_matriculada"] = maq_matriculada
-            datos["sondaje_nivel"]     = sondaje.get("nivel", "—")
-            datos["sondaje_labor"]     = sondaje.get("labor", "—")
-            datos["diametro"]          = sondaje.get("diametro", "NQ")
-            datos["prog_m"]            = sondaje.get("prog_m", 0)
-            datos["final_m_actual"]    = sondaje.get("final_m") or 0
+            # Mostrar también qué sondaje corresponde a esta máquina
+            activo = _sondaje_activo_en_maquina(datos.get("maquina_id"))
+            aviso_activo = ""
+            if activo:
+                aviso_activo = (
+                    f"\n\n📌 El sondaje activo de *{maq_actual}* es:\n"
+                    f"  🔖 *{activo['bhid']}* | {activo['objetivo']}\n"
+                    f"  📏 {activo['final_m']:.1f}/{activo['prog_m']:.1f} m"
+                )
+            datos.update({
+                "bhid":               sondaje["bhid"],
+                "maquina_matriculada": maq_matriculada,
+                "sondaje_nivel":      sondaje.get("nivel", "—"),
+                "sondaje_labor":      sondaje.get("labor", "—"),
+                "diametro":           sondaje.get("diametro", "NQ"),
+                "prog_m":             sondaje.get("prog_m", 0),
+                "final_m_actual":     sondaje.get("final_m") or 0,
+            })
             actualizar_sesion(sid, "confirmar_maquina", datos)
             return (
-                f"⚠️ *Atención — Máquina no coincide*\n\n"
-                f"Sondaje *{sondaje['bhid']}* está matriculado para "
-                f"*{maq_matriculada}*\nbut estás reportando con *{maq_actual}*.\n\n"
-                f"¿Confirmas que es correcto? (*sí* / *no*)\n"
+                f"⚠️ *{sondaje['bhid']}* está matriculado para "
+                f"*{maq_matriculada}*, no para *{maq_actual}*."
+                f"{aviso_activo}\n\n"
+                f"¿Confirmas igualmente? (*sí* / *no*)\n"
             )
 
         datos.update({
@@ -149,11 +166,20 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
     # ── Confirmar máquina incorrecta ──────────────────────────
     elif paso == "confirmar_maquina":
         if msg.lower() in ("no", "n"):
-            cerrar_sesion(usuario["id"])
-            return "❌ Reporte cancelado. Verifica el sondaje correcto."
+            # Mostrar sondaje correcto de esta máquina
+            activo = _sondaje_activo_en_maquina(datos.get("maquina_id"))
+            if activo:
+                actualizar_sesion(sid, "sondaje", datos)
+                return (
+                    f"El sondaje activo de *{datos.get('maquina_cod','—')}* es:\n"
+                    f"  🔖 *{activo['bhid']}* | {activo['objetivo']}\n"
+                    f"  📏 {activo['final_m']:.1f}/{activo['prog_m']:.1f} m\n\n"
+                    f"Escribe el código correcto:\n"
+                )
+            actualizar_sesion(sid, "sondaje", datos)
+            return "❌ Cancelado. Escribe el código correcto del sondaje:\n"
         if msg.lower() not in ("sí", "si", "yes", "ok"):
             return "¿Confirmas? *sí* o *no*."
-        # Continuar con advertencia registrada
         actualizar_sesion(sid, "turno", datos, sondaje_context=datos["bhid"])
         sondaje = buscar_sondaje(datos["bhid"])
         return _msg_sondaje_ok(sondaje)
@@ -199,7 +225,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         datos["avance"]         = round(avance, 2)
         datos["retorno_fluido"] = "100%"
 
-        # Detectar si alcanzó profundidad programada
         prog_m = float(datos.get("prog_m") or 0)
         if prog_m > 0 and prof_fin >= prog_m * 0.98:
             datos["posible_fin"] = True
@@ -216,16 +241,12 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
     elif paso == "cambio_linea":
         if msg.lower() in ("no", "n"):
             datos["hubo_cambio_linea"] = False
-            # Calcular costo sin cambio
             sufijo = datos.get("sufijo", "")
             diam   = datos.get("diametro", "NQ")
             datos["valor_usd"] = calcular_valor_turno(
                 diam, datos["prof_inicio"], datos["prof_final"], sufijo)
             actualizar_sesion(sid, "observaciones", datos)
-            return (
-                f"¿*Observaciones* del turno?\n"
-                f"Escribe las novedades o *ninguna*.\n"
-            )
+            return "¿*Observaciones* del turno?\nEscribe las novedades o *ninguna*.\n"
         if msg.lower() in ("sí", "si", "yes", "ok"):
             datos["hubo_cambio_linea"] = True
             datos["linea_anterior"]    = datos.get("diametro", "NQ")
@@ -239,23 +260,19 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
 
     # ── Línea nueva ───────────────────────────────────────────
     elif paso == "linea_nueva":
-        diams = {"1": "BQ", "2": "NQ", "3": "HQ", "4": "PQ",
-                 "bq": "BQ", "nq": "NQ", "hq": "HQ", "pq": "PQ"}
+        diams = {"1":"BQ","2":"NQ","3":"HQ","4":"PQ",
+                 "bq":"BQ","nq":"NQ","hq":"HQ","pq":"PQ"}
         linea_nueva = diams.get(msg.lower())
         if not linea_nueva:
             return "❓ Responde 1 (BQ), 2 (NQ), 3 (HQ) o 4 (PQ)."
         datos["linea_nueva"] = linea_nueva
         actualizar_sesion(sid, "metro_cambio", datos)
-        return (
-            f"✅ Nueva línea: *{linea_nueva}*\n\n"
-            f"¿En qué *metro exacto* fue el cambio?\n"
-            f"Ejemplo: 125.50\n"
-        )
+        return f"✅ Nueva línea: *{linea_nueva}*\n\n¿En qué *metro exacto* fue el cambio?\nEjemplo: 125.50\n"
 
     # ── Metro del cambio ──────────────────────────────────────
     elif paso == "metro_cambio":
         try:
-            metro = float(msg.replace(",", "."))
+            metro    = float(msg.replace(",", "."))
             prof_ini = datos.get("prof_inicio", 0)
             prof_fin = datos.get("prof_final", 0)
             if metro < prof_ini or metro > prof_fin:
@@ -264,40 +281,28 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         except ValueError:
             return "❓ Número válido. Ejemplo: 125.50"
 
-        # Calcular costo dividido por tramo
-        sufijo        = datos.get("sufijo", "")
-        linea_ant     = datos.get("linea_anterior", "NQ")
-        linea_nueva   = datos.get("linea_nueva", "BQ")
-        prof_ini      = datos["prof_inicio"]
-        prof_fin      = datos["prof_final"]
+        sufijo      = datos.get("sufijo", "")
+        linea_ant   = datos.get("linea_anterior", "NQ")
+        linea_nueva = datos.get("linea_nueva", "BQ")
+        costo1      = calcular_valor_turno(linea_ant,   datos["prof_inicio"], metro,              sufijo)
+        costo2      = calcular_valor_turno(linea_nueva, metro,                datos["prof_final"], sufijo)
+        datos["valor_usd"] = costo1 + costo2
 
-        costo_tramo1  = calcular_valor_turno(linea_ant,   prof_ini, metro,    sufijo)
-        costo_tramo2  = calcular_valor_turno(linea_nueva, metro,    prof_fin, sufijo)
-        datos["valor_usd"] = costo_tramo1 + costo_tramo2
-
-        # Actualizar diámetro del sondaje al nuevo
-        ejecutar(
-            "UPDATE sondajes SET diametro = %s WHERE bhid = %s",
-            (linea_nueva, datos["bhid"])
-        )
+        ejecutar("UPDATE sondajes SET diametro = %s WHERE bhid = %s",
+                 (linea_nueva, datos["bhid"]))
         datos["diametro"] = linea_nueva
 
         actualizar_sesion(sid, "observaciones", datos)
         return (
-            f"✅ Cambio de línea registrado:\n"
-            f"   {linea_ant} → {linea_nueva} en metro *{metro:.2f} m*\n\n"
-            f"¿*Observaciones* del turno?\n"
-            f"Escribe las novedades o *ninguna*.\n"
+            f"✅ Cambio registrado: {linea_ant} → {linea_nueva} en *{metro:.2f} m*\n\n"
+            f"¿*Observaciones* del turno?\nEscribe las novedades o *ninguna*.\n"
         )
 
     # ── Observaciones ─────────────────────────────────────────
     elif paso == "observaciones":
         datos["observaciones"] = "" if msg.lower() == "ninguna" else msg
         actualizar_sesion(sid, "foto", datos)
-        return (
-            f"📸 ¿Adjuntar foto de la última caja o tramo?\n"
-            f"Envía la foto o escribe *no*.\n"
-        )
+        return "📸 ¿Adjuntar foto?\nEnvía la foto o escribe *no*.\n"
 
     # ── Foto ──────────────────────────────────────────────────
     elif paso == "foto":
@@ -335,58 +340,54 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                     datos["fecha"], datos["turno"],
                     datos["prof_inicio"], datos["prof_final"],
                     datos.get("valor_usd"),
-                    datos.get("retorno_fluido", "100%"),
+                    datos.get("retorno_fluido","100%"),
                     datos.get("observaciones"),
-                    datos.get("foto_url"),
-                    datos.get("foto_tramo"),
+                    datos.get("foto_url"), datos.get("foto_tramo"),
                     datos.get("hubo_cambio_linea", False),
-                    datos.get("linea_anterior"),
-                    datos.get("linea_nueva"),
+                    datos.get("linea_anterior"), datos.get("linea_nueva"),
                     datos.get("metro_cambio_linea"),
                     usuario["id"], str(datos)
                 )
             )
-
-            # Actualizar profundidad final y estado EN_CURSO
             ejecutar(
                 """UPDATE sondajes SET
                        profundidad_final  = %s,
                        estado_perforacion = CASE
                            WHEN estado_perforacion = 'PLANIFICADO' THEN 'EN_CURSO'
                            ELSE estado_perforacion END,
-                       fecha_inicio_perf  = COALESCE(fecha_inicio_perf, %s)
+                       fecha_inicio_perf = COALESCE(fecha_inicio_perf, %s)
                    WHERE bhid = %s""",
                 (datos["prof_final"], datos["fecha"], datos["bhid"])
             )
 
             msg_individual = generar_mensaje_estandarizado(datos)
             empresa_nombre = _obtener_empresa(datos)
-            datos["msg_individual"] = msg_individual
+            datos["msg_individual"]  = msg_individual
+            datos["empresa_nombre"]  = empresa_nombre
 
-            # Verificar si sondaje llegó a profundidad programada
-            if datos.get("posible_fin"):
-                datos["empresa_nombre"] = empresa_nombre
-                actualizar_sesion(sid, "confirmar_fin_sondaje", datos)
-                return (
-                    f"✅ *Reporte registrado*\n📅 {fecha_hora_str()}\n\n"
-                    f"─────────────────────\n"
-                    f"📋 *TU REPORTE:*\n_(Copia y reenvía)_\n\n"
-                    f"{msg_individual}\n"
-                    f"─────────────────────\n\n"
-                    f"🎯 *La profundidad final alcanzó el programa.*\n"
-                    f"¿El sondaje *{datos['bhid']}* ha finalizado?\n"
-                    f"  *sí* — Marcar como FINALIZADO\n"
-                    f"  *no* — Continúa perforando\n"
-                )
-
-            actualizar_sesion(sid, "reporte_empresa", datos)
-            return (
+            reporte_base = (
                 f"✅ *Reporte registrado*\n📅 {fecha_hora_str()}\n\n"
                 f"─────────────────────\n"
                 f"📋 *TU REPORTE — {datos.get('maquina_cod','—')}:*\n"
                 f"_(Copia y reenvía)_\n\n"
                 f"{msg_individual}\n"
                 f"─────────────────────\n\n"
+            )
+
+            # Sondaje llegó a profundidad programada
+            if datos.get("posible_fin"):
+                actualizar_sesion(sid, "confirmar_fin_sondaje", datos)
+                return (
+                    reporte_base +
+                    f"🎯 La profundidad alcanzó el programa.\n"
+                    f"¿El sondaje *{datos['bhid']}* ha *finalizado*?\n"
+                    f"  *sí* — Marcar FINALIZADO\n"
+                    f"  *no* — Continúa perforando\n"
+                )
+
+            actualizar_sesion(sid, "reporte_empresa", datos)
+            return (
+                reporte_base +
                 f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
                 f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
             )
@@ -399,29 +400,22 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
     elif paso == "confirmar_fin_sondaje":
         if msg.lower() in ("sí", "si", "yes", "ok"):
             ejecutar(
-                """UPDATE sondajes SET
-                       estado_perforacion = 'FINALIZADO',
-                       fecha_fin_perf     = %s
-                   WHERE bhid = %s""",
+                "UPDATE sondajes SET estado_perforacion='FINALIZADO', fecha_fin_perf=%s WHERE bhid=%s",
                 (datos.get("fecha"), datos["bhid"])
             )
-            empresa_nombre = datos.get("empresa_nombre", "tu empresa")
-            actualizar_sesion(sid, "reporte_empresa", datos)
-            return (
-                f"✅ *{datos['bhid']}* marcado como *FINALIZADO* 🎉\n\n"
-                f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
-                f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
-            )
+            msg_extra = f"✅ *{datos['bhid']}* marcado como *FINALIZADO* 🎉\n\n"
         else:
-            empresa_nombre = datos.get("empresa_nombre", "tu empresa")
-            actualizar_sesion(sid, "reporte_empresa", datos)
-            return (
-                f"✅ Sondaje continúa en curso.\n\n"
-                f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
-                f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
-            )
+            msg_extra = "✅ Sondaje continúa en curso.\n\n"
 
-    # ── Reporte consolidado por empresa ───────────────────────
+        empresa_nombre = datos.get("empresa_nombre", "tu empresa")
+        actualizar_sesion(sid, "reporte_empresa", datos)
+        return (
+            msg_extra +
+            f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
+            f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
+        )
+
+    # ── Reporte consolidado ───────────────────────────────────
     elif paso == "reporte_empresa":
         if msg.lower() == "fin":
             cerrar_sesion(usuario["id"])
@@ -448,8 +442,13 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                 (empresa_id, fecha, turno), fetchall=True
             )
             if not rows:
-                actualizar_sesion(sid, "reporte_empresa", datos)
-                return "⚠️ Aún no hay reportes de otras máquinas.\n\n  *no* — Otra máquina\n  *fin* — Terminar"
+                # No hay más reportes — terminar directamente
+                cerrar_sesion(usuario["id"])
+                return (
+                    f"⚠️ Solo hay un reporte registrado para este turno.\n"
+                    f"El reporte individual ya fue enviado. ✅\n\n"
+                    f"Escribe *hola* cuando necesites."
+                )
 
             reportes = [{
                 "prof_inicio": float(r[0] or 0), "prof_final": float(r[1] or 0),
@@ -459,22 +458,25 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                 "turno": turno, "fecha": fecha,
             } for r in rows]
 
-            emp_row = ejecutar("SELECT nombre FROM cat_empresas WHERE id = %s",
+            emp_row = ejecutar("SELECT nombre FROM cat_empresas WHERE id=%s",
                                (empresa_id,), fetchone=True)
             empresa_nombre = emp_row[0] if emp_row else "Empresa"
             consolidado    = generar_reporte_empresa(reportes, empresa_nombre, fecha)
+
+            # Después del consolidado → terminar o registrar otra máquina
             actualizar_sesion(sid, "post_consolidado", datos)
             return (
                 f"─────────────────────\n"
                 f"🏢 *{empresa_nombre.upper()} — TURNO {turno}*\n"
                 f"_(Copia y reenvía)_\n\n{consolidado}\n"
                 f"─────────────────────\n\n"
-                f"¿Registrar otra máquina?\n  *sí* — Continuar\n  *no* — Terminar\n"
+                f"¿Registrar otra máquina?\n"
+                f"  *sí* — Continuar\n  *no* — Terminar\n"
             )
         except Exception as e:
             print(f"[PERFORACION] Error consolidado: {e}")
             cerrar_sesion(usuario["id"])
-            return "⚠️ Error generando consolidado."
+            return "⚠️ Error generando consolidado. Tu reporte ya fue guardado."
 
     # ── Post consolidado ──────────────────────────────────────
     elif paso == "post_consolidado":
@@ -483,20 +485,42 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return "✅ Listo. Escribe *hola* cuando necesites."
         if msg.lower() in ("sí", "si", "yes", "ok"):
             return _menu_siguiente_maquina(sid, datos)
-        return "*sí* para continuar o *no* para terminar."
+        return "*sí* para otra máquina o *no* para terminar."
 
     return "❓ Escribe *hola* para reiniciar."
 
 
 # ── HELPERS ───────────────────────────────────────────────────
 
+def _sondaje_activo_en_maquina(maquina_id: int) -> dict | None:
+    """Retorna el sondaje EN_CURSO de una máquina específica."""
+    if not maquina_id:
+        return None
+    row = ejecutar(
+        """SELECT s.bhid, s.profundidad_prog, s.profundidad_final,
+                  s.tajo_objetivo, s.cuerpo_objetivo
+           FROM sondajes s
+           WHERE s.maquina_id = %s
+             AND s.estado_perforacion = 'EN_CURSO'
+           ORDER BY s.fecha_inicio_perf DESC LIMIT 1""",
+        (maquina_id,), fetchone=True
+    )
+    if not row:
+        return None
+    return {
+        "bhid":     row[0],
+        "prog_m":   float(row[1] or 0),
+        "final_m":  float(row[2] or 0),
+        "objetivo": row[3] or row[4] or "—",
+    }
+
 def _msg_sondaje_ok(sondaje: dict) -> str:
-    estado = sondaje.get("estado_perforacion", "")
+    estado = sondaje.get("estado_perforacion", "") if sondaje else ""
     estado_str = ""
     if estado == "PLANIFICADO":
-        estado_str = "\n   🔵 Estado: PLANIFICADO (primer avance)"
+        estado_str = "\n   🔵 Primer avance — iniciará EN CURSO"
     elif estado == "EN_CURSO":
-        estado_str = "\n   🟢 Estado: EN CURSO"
+        estado_str = "\n   🟢 EN CURSO"
     return (
         f"✅ Sondaje: *{sondaje['bhid']}*\n"
         f"   Nv.{sondaje.get('nivel','—')} | {sondaje.get('labor','—')}"
@@ -511,11 +535,11 @@ def _menu_siguiente_maquina(sid: int, datos: dict) -> str:
     menu = "\n".join([f"  *{i+1}* — {m['codigo']} ({m['empresa']})"
                       for i, m in enumerate(maquinas)])
     datos_nueva = {
-        "empresa_id": datos.get("empresa_id"),
-        "turno":      datos.get("turno"),
-        "fecha":      datos.get("fecha"),
-        "maquina_opciones": [(m["id"], m["codigo"],
-                               m["empresa"]) for m in maquinas],
+        "empresa_id":      datos.get("empresa_id"),
+        "turno":           datos.get("turno"),
+        "fecha":           datos.get("fecha"),
+        "maquina_opciones":[(m["id"], m["codigo"],
+                              m["empresa"]) for m in maquinas],
     }
     actualizar_sesion(sid, "maquina", datos_nueva)
     return (
@@ -547,17 +571,16 @@ def _mostrar_resumen(datos: dict) -> str:
     )
 
 def _obtener_sondaje_id(bhid: str) -> int | None:
-    row = ejecutar("SELECT id FROM sondajes WHERE bhid = %s",
-                   (bhid,), fetchone=True)
+    row = ejecutar("SELECT id FROM sondajes WHERE bhid=%s", (bhid,), fetchone=True)
     return row[0] if row else None
 
 def _obtener_empresa(datos: dict) -> str:
-    row = ejecutar("SELECT codigo FROM cat_empresas WHERE id = %s",
-                   (datos.get("empresa_id", 1),), fetchone=True)
+    row = ejecutar("SELECT codigo FROM cat_empresas WHERE id=%s",
+                   (datos.get("empresa_id",1),), fetchone=True)
     return row[0] if row else "tu empresa"
 
 def _obtener_estado_perforacion(bhid: str) -> str:
-    row = ejecutar("SELECT estado_perforacion FROM sondajes WHERE bhid = %s",
+    row = ejecutar("SELECT estado_perforacion FROM sondajes WHERE bhid=%s",
                    (bhid,), fetchone=True)
     return row[0] if row else "PLANIFICADO"
 
