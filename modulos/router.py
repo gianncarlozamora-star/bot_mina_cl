@@ -136,6 +136,12 @@ def _despachar_intencion(accion: str, intent: dict,
             return "⛔ La descarga de reportes es solo para gerencia y geólogos."
         return _menu_descarga(usuario)
 
+
+    if accion == "consulta_foto":
+        bhid = intent.get("bhid") or mensaje
+        return mod_gerencia.consultar_foto(bhid, usuario)
+
+                            
     # ── DESCONOCIDO → IA libre ────────────────────────────────
     respuesta_libre = intent.get("respuesta_libre", "")
     if respuesta_libre:
