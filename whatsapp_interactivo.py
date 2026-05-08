@@ -148,6 +148,19 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "certimin", "titulo": "📦 Confirmar batch", "desc": "Recepción o resultados"},
             ]
         },
+
+        "ADMIN": {
+            "cuerpo": f"Hola *{nombre}* 🔧\n¿Qué deseas hacer?",
+            "opciones_lista": [
+                {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Nuevo sondaje"},
+                {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
+                {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo..."},
+                {"id": "certimin",    "titulo": "🧪 Certimin",           "desc": "Confirmar batch"},
+                {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
+                {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
+            ]
+        },
+        
         "GERENCIA": {
             "cuerpo": f"Hola *{nombre}* 📊\n¿Qué deseas consultar?",
             "opciones_lista": [
