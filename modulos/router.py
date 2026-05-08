@@ -138,6 +138,12 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             return "⛔ El resumen es solo para gerencia y geólogos."
         return mod_gerencia.resumen_general(usuario)
 
+    if accion == "resumen" or "en curso" in mensaje.lower() or \
+       "perforando" in mensaje.lower() or "activos" in mensaje.lower():
+        if "curso" in mensaje.lower() or "perforando" in mensaje.lower():
+            return mod_gerencia.sondajes_en_curso(usuario)
+        return mod_gerencia.resumen_general(usuario)
+
     if accion == "descarga":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
             return "⛔ La descarga es solo para gerencia y geólogos."
