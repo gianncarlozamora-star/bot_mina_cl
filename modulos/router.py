@@ -171,6 +171,9 @@ def _continuar_flujo(mensaje: str, usuario: dict, sesion: dict,
     if flujo == FLUJOS["DESCARGA_EXCEL"]:
         return _procesar_descarga(mensaje, usuario, sesion)
 
+    if flujo == "9":  # Selección de foto
+        return mod_gerencia.consultar_foto(mensaje, usuario, sesion)
+
     cerrar_sesion(usuario["id"])
     return _menu_rol(usuario)
 
