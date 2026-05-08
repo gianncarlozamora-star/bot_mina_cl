@@ -210,15 +210,17 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
 
 
 def _enriquecer_matricula(resultado, paso, sesion, remitente, sid):
-    """Lee paso actual de BD y envía interactivo donde aplica."""
     from db.conexion import ejecutar as _ej
     row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
                (sid,), fetchone=True)
     paso_nuevo = row[0] if row else paso
 
-    if resultado is None:
-        return {"tipo": "interactivo"}  # menú ya enviado
+    # Pasos de anulación — no interceptar, dejar pasar directo
+    if paso in ("anular_buscar", "anular_confirmar"):
+        return resultado
 
+    if resultado is None:
+        return {"tipo": "interactivo"}
     # Después de confirmar labor → botones diámetro
     if paso_nuevo == "diametro":
         if resultado:
