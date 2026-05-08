@@ -474,20 +474,16 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             emp_row = ejecutar("SELECT nombre FROM cat_empresas WHERE id=%s",
                                (empresa_id,), fetchone=True)
             empresa_nombre = emp_row[0] if emp_row else "Empresa"
-            consolidado    = generar_reporte_empresa(
+            consolidado = generar_reporte_empresa(
                 reportes, empresa_nombre, fecha,
                 maquinas_sin_reporte=sin_reporte
             )
-
-            # Después del consolidado → terminar o registrar otra máquina
-            actualizar_sesion(sid, "post_consolidado", datos)
+            cerrar_sesion(usuario["id"])
             return (
-                f"─────────────────────\n"
-                f"🏢 *{empresa_nombre.upper()} — TURNO {turno}*\n"
-                f"_(Copia y reenvía)_\n\n{consolidado}\n"
-                f"─────────────────────\n\n"
-                f"¿Registrar otra máquina?\n"
-                f"  *sí* — Continuar\n  *no* — Terminar\n"
+                f"🏢 *{empresa_nombre.upper()} | TURNO {turno}*\n"
+                f"_(Copia y reenvía a tu grupo)_\n\n"
+                f"{consolidado}\n\n"
+                f"✅ Sesión cerrada. Escribe *hola* cuando necesites."
             )
         except Exception as e:
             print(f"[PERFORACION] Error consolidado: {e}")
