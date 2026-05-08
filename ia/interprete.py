@@ -21,6 +21,7 @@ Analiza el mensaje y devuelve SOLO un JSON con esta estructura:
 
 INTENCIONES VÁLIDAS:
 - matricula      → quiere registrar/crear/matricular un nuevo sondaje DDH
+- anular         → quiere anular, eliminar o borrar un sondaje
 - perforacion    → reporte de avance de perforación, metros perforados, turno
 - sgs            → logueo, muestreo, RQD, fotografía o densidad
 - certimin       → envío o confirmación de batch de laboratorio
@@ -28,11 +29,11 @@ INTENCIONES VÁLIDAS:
 - consulta_ddh   → pregunta por el estado de un DDH específico
 - consulta_tajo  → pregunta por sondajes de un tajo (T-XXX)
 - consulta_objetivo → pregunta por sondajes de un cuerpo/objetivo (OB1, etc.)
+- consulta_foto  → quiere ver una foto registrada de un sondaje
 - resumen        → pide resumen general, KPIs, totales
 - descarga       → quiere descargar Excel o reporte
 - menu           → saludo, ayuda, menú, inicio, hola, opciones
 - desconocido    → no encaja en ninguna categoría anterior
-- consulta_foto  → quiere ver una foto registrada de un sondaje
 
 REGLAS DE NORMALIZACIÓN DE BHID:
 - "8422", "el 8422", "pecld8422", "PECLD-08422" → "PECLD08422"
@@ -64,128 +65,133 @@ Devuelve SOLO el JSON sin texto adicional, sin backticks, sin explicaciones."""
         return {"intencion": "desconocido", "respuesta_libre": "No entendí el mensaje."}
 
 
+def _fmt_fecha(fecha: str) -> str:
+    """Convierte 2026-05-08 → 08/05/26"""
+    try:
+        from datetime import datetime
+        return datetime.strptime(fecha, "%Y-%m-%d").strftime("%d/%m/%y")
+    except:
+        return fecha
+
+
+def _obs_relevante(obs: str) -> str | None:
+    """Retorna None si la observación no es relevante."""
+    if not obs:
+        return None
+    ignorar = ("ninguna", "nada", "sin novedad", "sin novedades",
+               "ninguna novedad", "sin observacion", "sin observaciones",
+               "ningua", "nada relevante", "todo bien", "normal",
+               "sin nada", "ok", "bien")
+    if obs.lower().strip() in ignorar:
+        return None
+    return obs.strip()
+
+
 def generar_mensaje_estandarizado(datos: dict) -> str:
     """
-    Genera el mensaje estandarizado de reporte de turno AGRUPADO POR EMPRESA
-    para que el perforista pueda copiarlo y enviarlo a su grupo de WhatsApp.
-    No incluye costos ni retorno de fluido.
+    Genera reporte individual compacto para WhatsApp.
+    Formato aprobado: sin costos, sin retorno de fluido,
+    observaciones solo si son relevantes.
     """
-    # Determinar empresa para el encabezado
     maquina  = datos.get("maquina_cod", "—")
     turno    = datos.get("turno", "—")
-    fecha    = datos.get("fecha", "—")
+    fecha    = _fmt_fecha(datos.get("fecha", "—"))
     bhid     = datos.get("bhid", "—")
     nivel    = datos.get("sondaje_nivel", "—")
     labor    = datos.get("sondaje_labor", "—")
-    desde    = datos.get("prof_inicio", 0)
-    hasta    = datos.get("prof_final", 0)
-    avance   = datos.get("avance", 0)
-    obs      = datos.get("observaciones", "") or "Sin novedades."
+    desde    = float(datos.get("prof_inicio") or 0)
+    hasta    = float(datos.get("prof_final") or 0)
+    avance   = float(datos.get("avance") or 0)
     diametro = datos.get("diametro", "—")
     prog     = datos.get("prog_m", "—")
+    objetivo = datos.get("tajo_objetivo") or datos.get("cuerpo_objetivo") or "—"
+    obs      = _obs_relevante(datos.get("observaciones", ""))
 
-    # Formato fecha legible
+    # Calcular porcentaje de avance total
     try:
-        from datetime import datetime
-        fecha_fmt = datetime.strptime(fecha, "%Y-%m-%d").strftime("%d/%m/%Y")
+        prog_f = float(prog)
+        pct    = f" ({hasta/prog_f*100:.0f}%)" if prog_f > 0 else ""
     except:
-        fecha_fmt = fecha
+        pct = ""
 
-    system = """Eres el asistente de operaciones mineras de Cerro Lindo.
-Genera un reporte de turno de perforación profesional en español para WhatsApp.
-El reporte NO debe incluir costos, valorización ni retorno de fluido.
-Usa formato limpio con emojis moderados, similar a los reportes de Explomin y Explodrilling.
-Agrupa la información claramente. Solo el reporte, sin texto adicional."""
-
-    prompt = f"""Genera el reporte de turno con estos datos:
-- Máquina: {maquina}
-- Fecha: {fecha_fmt}
-- Turno: {turno}
-- Ubicación: Nivel {nivel} | {labor}
-- Sondaje: {bhid}
-- Línea: {diametro}
-- Programación: {prog} m
-- Prof. inicio: {desde:.2f} m
-- Prof. final: {hasta:.2f} m
-- Avance: {avance:.2f} m
-- Observaciones: {obs}
-
-IMPORTANTE: No incluyas costos, valorización ni retorno de fluido."""
-
-    try:
-        cliente = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-        resp = cliente.messages.create(
-            model=MODELO_IA,
-            max_tokens=500,
-            system=system,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return resp.content[0].text.strip()
-    except Exception as e:
-        print(f"[IA] Error generando reporte: {e}")
-        # Fallback manual sin IA
-        return (
-            f"📋 *Reporte {maquina} — Turno {turno}*\n"
-            f"📅 Fecha: {fecha_fmt}\n"
-            f"📍 Ubicación: Nv.{nivel} {labor}\n"
-            f"🔖 Sondaje: {bhid}\n"
-            f"💧 Línea: {diametro} | Prog: {prog} m\n"
-            f"📏 Desde: {desde:.2f} m\n"
-            f"📏 Hasta: {hasta:.2f} m\n"
-            f"➡️ Avance: *{avance:.2f} m*\n"
-            f"📝 Obs: {obs}"
+    # Cambio de línea
+    cambio_str = ""
+    if datos.get("hubo_cambio_linea"):
+        cambio_str = (
+            f"\n🔄 {datos.get('linea_anterior','—')} → "
+            f"{datos.get('linea_nueva','—')} "
+            f"en {datos.get('metro_cambio_linea',0):.1f}m"
         )
 
+    # ¿Finalizó?
+    fin_str = " ✅ FIN" if datos.get("posible_fin") else ""
 
-def generar_reporte_empresa(reportes: list, empresa: str, fecha: str) -> str:
+    lineas = [
+        f"⛏️ {maquina} | TURNO {turno} | {fecha}",
+        f"📍 Nv.{nivel} {labor}",
+        f"🔖 {bhid} → {objetivo} | {diametro} | Prog: {prog}m",
+        f"📏 {desde:.2f} → {hasta:.2f} m | +{avance:.2f} m{pct}{fin_str}{cambio_str}",
+    ]
+    if obs:
+        lineas.append(f"⚠️ {obs}")
+
+    return "\n".join(lineas)
+
+
+def generar_reporte_empresa(reportes: list, empresa: str, fecha: str,
+                             maquinas_sin_reporte: list = None) -> str:
     """
-    Genera reporte consolidado de TODAS las máquinas de una empresa en un turno.
-    reportes: lista de dicts con datos de cada máquina.
+    Genera reporte consolidado compacto por empresa.
+    Formato aprobado: una línea por máquina con info esencial.
     """
-    try:
-        from datetime import datetime
-        fecha_fmt = datetime.strptime(fecha, "%Y-%m-%d").strftime("%d/%m/%Y")
-    except:
-        fecha_fmt = fecha
+    fecha_fmt    = _fmt_fecha(fecha)
+    total_avance = sum(float(r.get("avance") or 0) for r in reportes)
+    turno        = reportes[0].get("turno", "—") if reportes else "—"
 
-    total_avance = sum(r.get("avance", 0) for r in reportes)
+    lineas = [
+        f"🏢 {empresa.upper()} | {turno} | {fecha_fmt}",
+        "─────────────────────",
+    ]
 
-    system = """Eres el asistente de operaciones mineras de Cerro Lindo.
-Genera un reporte consolidado de turno para todas las máquinas de una empresa.
-Formato WhatsApp, profesional, sin costos ni valorización.
-Incluye un resumen al final con el avance total."""
+    for r in reportes:
+        maq      = r.get("maquina_cod", "—")
+        bhid     = r.get("bhid", "—")
+        nivel    = r.get("sondaje_nivel", "—")
+        labor    = r.get("sondaje_labor", "—")
+        diametro = r.get("diametro", "—")
+        prog     = r.get("prog_m")
+        desde    = float(r.get("prof_inicio") or 0)
+        hasta    = float(r.get("prof_final") or 0)
+        avance   = float(r.get("avance") or 0)
+        obs      = _obs_relevante(r.get("observaciones", ""))
+        fin_str  = " ✅ FIN" if r.get("es_fin") else ""
 
-    prompt = f"""Genera el reporte consolidado de {empresa} para el {fecha_fmt}.
-Total avance del turno: {total_avance:.2f} m
+        # Porcentaje sobre programa
+        try:
+            pct = f" ({hasta/float(prog)*100:.0f}%)" if prog and float(prog) > 0 else ""
+        except:
+            pct = ""
 
-Datos por máquina:
-{json.dumps(reportes, ensure_ascii=False, default=str, indent=2)}
+        lineas.append(f"\n🚜 {maq} | {bhid}")
+        lineas.append(f"   Nv.{nivel} {labor} | {diametro} | Prog: {prog}m")
+        lineas.append(f"   {desde:.2f} → {hasta:.2f} m | +{avance:.2f} m{pct}{fin_str}")
+        if obs:
+            lineas.append(f"   ⚠️ {obs}")
 
-Sin costos. Sin retorno de fluido. Solo operaciones."""
+    # Máquinas sin reporte
+    if maquinas_sin_reporte:
+        for maq in maquinas_sin_reporte:
+            lineas.append(f"\n🚜 {maq} | sin reporte ⏳")
 
-    try:
-        cliente = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-        resp = cliente.messages.create(
-            model=MODELO_IA,
-            max_tokens=800,
-            system=system,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return resp.content[0].text.strip()
-    except Exception as e:
-        print(f"[IA] Error generando reporte empresa: {e}")
-        # Fallback manual
-        lineas = [f"📋 *Reporte {empresa} — {fecha_fmt}*\n"]
-        for r in reportes:
-            lineas.append(
-                f"🚜 *{r.get('maquina_cod','—')}* | {r.get('bhid','—')}\n"
-                f"   Turno {r.get('turno','—')} | "
-                f"{r.get('prof_inicio',0):.1f}→{r.get('prof_final',0):.1f} m | "
-                f"Avance: *{r.get('avance',0):.1f} m*\n"
-                f"   📝 {r.get('observaciones','Sin novedades') or 'Sin novedades'}\n"
-            )
-        lineas.append(f"\n➡️ *Avance total: {total_avance:.2f} m*")
-        return "\n".join(lineas)
+    lineas.append("\n─────────────────────")
+    n_reportaron = len(reportes)
+    n_total      = n_reportaron + len(maquinas_sin_reporte or [])
+    lineas.append(
+        f"➡️ TOTAL: {total_avance:.2f} m | "
+        f"{n_reportaron}/{n_total} máquinas"
+    )
+
+    return "\n".join(lineas)
 
 
 def responder_consulta_gerencia(pregunta: str, datos: dict) -> str:
