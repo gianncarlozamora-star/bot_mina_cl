@@ -137,65 +137,61 @@ def webhook():
 
 
 def _normalizar_interactivo(item_id: str, titulo: str) -> str:
-    """
-    Convierte IDs de botones/listas a texto que los módulos entienden.
-    """
-    # Botones de confirmación
-    mapeo = {
-        # Confirmaciones
-        "btn_0_confirmar": "si",
-        "btn_1_cancelar":  "no",
-        "btn_0_sí":        "si",
-        "btn_1_no":        "no",
-        # Turno
-        "btn_0_☀️_día":   "1",
-        "btn_1_🌙_noche":  "2",
-        # Sí/No/Fin
-        "btn_0_sí":         "si",
-        "btn_1_otra_máquina": "no",
-        "btn_2_fin":        "fin",
-        # Diámetro
-        "btn_0_bq": "BQ",
-        "btn_1_nq": "NQ",
-        "btn_2_hq": "HQ",
-    }
-
-    # Normalizar por ID exacto
-    if item_id in mapeo:
-        return mapeo[item_id]
-
-    # Máquinas: maq_1, maq_2, etc.
+    # Máquinas: maq_1 → buscar índice en lista
     if item_id.startswith("maq_"):
         try:
-            num = int(item_id.replace("maq_", ""))
-            return f"__maq_id_{num}__"
+            maq_id = int(item_id.replace("maq_", ""))
+            # Importar para obtener lista ordenada igual que el menú
+            from db.usuarios import obtener_maquinas_activas
+            maquinas = obtener_maquinas_activas()
+            for i, m in enumerate(maquinas):
+                if m["id"] == maq_id:
+                    return str(i + 1)  # número del 1 al N
         except:
             pass
+        return "1"  # fallback
 
-    # Tipo sondaje: tipo_INFILL, tipo_IND_MED, etc.
+    # Botones de confirmación
+    if "confirmar" in item_id:  return "si"
+    if "cancelar"  in item_id:  return "no"
+
+    # Turno
+    if "día" in item_id.lower() or "dia" in item_id.lower(): return "1"
+    if "noche" in item_id.lower():                            return "2"
+
+    # Sí/No/Fin
+    if item_id.startswith("btn_0"): return "si"
+    if item_id.startswith("btn_1"): return "no"
+    if item_id.startswith("btn_2"): return "fin"
+
+    # Tipo sondaje
     if item_id.startswith("tipo_"):
-        return item_id.replace("tipo_", "")
+        tipos = {"tipo_INFILL":"1","tipo_IND_MED":"2",
+                 "tipo_INF_IND":"3","tipo_POT_INF":"4"}
+        return tipos.get(item_id, "1")
 
-    # SGS desde menú principal: sgs_LOGUEO, sgs_MUESTREO, etc.
+    # SGS
     if item_id.startswith("sgs_"):
-        etapa = item_id.replace("sgs_", "").lower()
-        etapas_map = {
-            "logueo": "1", "muestreo": "2", "rqd": "3",
-            "fotografia": "4", "densidad": "5"
-        }
-        return etapas_map.get(etapa, etapa)
+        etapas = {"sgs_LOGUEO":"1","sgs_MUESTREO":"2","sgs_RQD":"3",
+                  "sgs_FOTOGRAFIA":"4","sgs_DENSIDAD":"5"}
+        return etapas.get(item_id, "1")
 
-    # Acciones del menú principal
-    acciones_menu = {
-        "matricula": "matricular", "perforacion": "perforacion",
-        "sgs": "sgs", "certimin": "certimin", "resumen": "resumen",
-        "descarga": "descargar", "tajo": "consultar tajo",
-        "objetivo": "consultar objetivo", "consulta": "estado",
+    # Acciones menú principal
+    acciones = {
+        "matricula":"matricular", "perforacion":"perforacion",
+        "sgs":"sgs", "certimin":"certimin", "resumen":"resumen",
+        "descarga":"descargar", "tajo":"consultar tajo",
+        "objetivo":"consultar objetivo", "consulta":"estado",
     }
-    if item_id in acciones_menu:
-        return acciones_menu[item_id]
+    if item_id in acciones:
+        return acciones[item_id]
 
-    # Fotos: foto_0, foto_1, etc.
+    # Diámetro
+    if item_id == "btn_0_bq": return "BQ"
+    if item_id == "btn_1_nq": return "NQ"
+    if item_id == "btn_2_hq": return "HQ"
+
+    # Fotos
     if item_id.startswith("foto_"):
         try:
             return str(int(item_id.replace("foto_", "")) + 1)
@@ -203,13 +199,10 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
             pass
 
     # Descargas
-    desc_map = {
-        "desc_avance": "1", "desc_estado": "2", "desc_mes": "3"
-    }
-    if item_id in desc_map:
-        return desc_map[item_id]
+    desc = {"desc_avance":"1","desc_estado":"2","desc_mes":"3"}
+    if item_id in desc:
+        return desc[item_id]
 
-    # Fallback: usar el título directamente
     return titulo
 
 
