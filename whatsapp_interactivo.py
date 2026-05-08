@@ -185,30 +185,12 @@ def menu_principal_rol(telefono: str, usuario: dict):
                      boton_texto="Ver opciones")
 
 
-def menu_maquinas(telefono: str, maquinas: list, texto: str = "¿Con qué máquina trabajas?"):
-    """Lista numerada de máquinas como texto simple."""
+def menu_maquinas(telefono: str, maquinas: list, 
+                  texto: str = "¿Con qué máquina trabajas?"):
     from main import enviar_mensaje
-    explomin      = [m for m in maquinas if m["empresa"] == "EXPLOMIN"]
-    explodrilling = [m for m in maquinas if m["empresa"] == "EXPLODRILLING"]
-    otros         = [m for m in maquinas if m["empresa"] not in ("EXPLOMIN", "EXPLODRILLING")]
-
     lineas = [f"*{texto}*\n"]
-    i = 1
-    if explomin:
-        lineas.append("*EXPLOMIN:*")
-        for m in explomin:
-            lineas.append(f"  *{i}* — {m['codigo']}")
-            i += 1
-    if explodrilling:
-        lineas.append("\n*EXPLODRILLING:*")
-        for m in explodrilling:
-            lineas.append(f"  *{i}* — {m['codigo']}")
-            i += 1
-    if otros:
-        lineas.append("\n*OTRAS:*")
-        for m in otros:
-            lineas.append(f"  *{i}* — {m['codigo']}")
-            i += 1
+    for i, m in enumerate(maquinas):
+        lineas.append(f"  *{i+1}* — {m['codigo']} ({m['empresa']})")
     lineas.append(f"\nResponde con el número.")
     enviar_mensaje(telefono, "\n".join(lineas))
 
