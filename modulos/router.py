@@ -133,10 +133,18 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             return {"tipo": "interactivo"}
         return resultado
 
-    if accion == "resumen":
-        if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
-            return "⛔ El resumen es solo para gerencia y geólogos."
-        return mod_gerencia.resumen_general(usuario)
+        if accion == "resumen":
+            if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
+                return "⛔ El resumen es solo para gerencia y geólogos."
+            # Detectar si pregunta por sondajes en curso
+            if any(w in mensaje.lower() for w in
+                   ("curso", "perforando", "activo", "activos", "perforación activa")):
+                return mod_gerencia.sondajes_en_curso(usuario)
+            return mod_gerencia.resumen_general(usuario)
+
+        if any(w in mensaje.lower() for w in
+               ("en curso", "perforando", "sondajes activos", "qué se está perforando")):
+            return mod_gerencia.sondajes_en_curso(usuario)
 
     if accion == "resumen" or "en curso" in mensaje.lower() or \
        "perforando" in mensaje.lower() or "activos" in mensaje.lower():
