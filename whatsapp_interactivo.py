@@ -200,16 +200,18 @@ def botones_turno(telefono: str, texto: str = "¿Qué turno reportas?"):
 
 
 def botones_confirmar(telefono: str, texto: str, pie: str = None):
-    return botones(telefono, texto, ["✅ Confirmar", "❌ Cancelar"], pie=pie)
+    from main import enviar_mensaje
+    enviar_mensaje(telefono, texto + "\n\n✅ Responde *sí* para confirmar o *no* para cancelar.")
 
 
 def botones_si_no(telefono: str, texto: str):
-    return botones(telefono, texto, ["✅ Sí", "❌ No"])
+    from main import enviar_mensaje
+    enviar_mensaje(telefono, texto + "\n\nResponde *sí* o *no*.")
 
 
 def botones_si_no_fin(telefono: str, texto: str):
-    return botones(telefono, texto, ["✅ Sí", "🔄 Otra máquina", "🏁 Fin"])
-
+    from main import enviar_mensaje
+    enviar_mensaje(telefono, texto + "\n\n  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar")
 
 def menu_tipo_sondaje(telefono: str):
     return lista(
