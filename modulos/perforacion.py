@@ -403,6 +403,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                 "UPDATE sondajes SET estado_perforacion='FINALIZADO', fecha_fin_perf=%s WHERE bhid=%s",
                 (datos.get("fecha"), datos["bhid"])
             )
+            datos["es_fin"] = True
             msg_extra = f"✅ *{datos['bhid']}* marcado como *FINALIZADO* 🎉\n\n"
         else:
             msg_extra = "✅ Sondaje continúa en curso.\n\n"
@@ -452,16 +453,31 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
 
             reportes = [{
                 "prof_inicio": float(r[0] or 0), "prof_final": float(r[1] or 0),
-                "avance": float(r[2] or 0), "observaciones": r[3] or "Sin novedades",
+                "avance": float(r[2] or 0), "observaciones": r[3] or "",
                 "maquina_cod": r[4], "bhid": r[5], "sondaje_nivel": r[6],
                 "sondaje_labor": r[7], "diametro": r[8], "prog_m": r[9],
                 "turno": turno, "fecha": fecha,
             } for r in rows]
 
+            # Detectar máquinas de la empresa que NO reportaron
+            maquinas_empresa = ejecutar(
+                """SELECT codigo FROM cat_maquinas
+                   WHERE empresa_id = %s AND activo = TRUE""",
+                (empresa_id,), fetchall=True
+            )
+            maquinas_reportaron = {r["maquina_cod"] for r in reportes}
+            sin_reporte = [
+                m[0] for m in (maquinas_empresa or [])
+                if m[0] not in maquinas_reportaron
+            ]
+
             emp_row = ejecutar("SELECT nombre FROM cat_empresas WHERE id=%s",
                                (empresa_id,), fetchone=True)
             empresa_nombre = emp_row[0] if emp_row else "Empresa"
-            consolidado    = generar_reporte_empresa(reportes, empresa_nombre, fecha)
+            consolidado    = generar_reporte_empresa(
+                reportes, empresa_nombre, fecha,
+                maquinas_sin_reporte=sin_reporte
+            )
 
             # Después del consolidado → terminar o registrar otra máquina
             actualizar_sesion(sid, "post_consolidado", datos)
