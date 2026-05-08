@@ -133,23 +133,9 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             return {"tipo": "interactivo"}
         return resultado
 
-        if accion == "resumen":
-            if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
-                return "⛔ El resumen es solo para gerencia y geólogos."
-            # Detectar si pregunta por sondajes en curso
-            if any(w in mensaje.lower() for w in
-                   ("curso", "perforando", "activo", "activos", "perforación activa")):
-                return mod_gerencia.sondajes_en_curso(usuario)
-            return mod_gerencia.resumen_general(usuario)
-
-        if any(w in mensaje.lower() for w in
-               ("en curso", "perforando", "sondajes activos", "qué se está perforando")):
-            return mod_gerencia.sondajes_en_curso(usuario)
-
-    if accion == "resumen" or "en curso" in mensaje.lower() or \
-       "perforando" in mensaje.lower() or "activos" in mensaje.lower():
-        if "curso" in mensaje.lower() or "perforando" in mensaje.lower():
-            return mod_gerencia.sondajes_en_curso(usuario)
+    if accion == "resumen":
+        if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
+            return "⛔ El resumen es solo para gerencia y geólogos."
         return mod_gerencia.resumen_general(usuario)
 
     if accion == "descarga":
@@ -252,8 +238,14 @@ def _enriquecer_matricula(resultado, paso_anterior, sesion_id, remitente):
         return resultado
 
     # confirmación → botones confirmar/cancelar
-    if paso_nuevo in ("confirmacion", "reutilizar_bhid", "anular_confirmar"):
-        return resultado
+    if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+
+    # reutilizar BHID anulado → botones sí/no
+    if paso_nuevo == "reutilizar_bhid":
+        botones_si_no(remitente, resultado)
+        return {"tipo": "interactivo"}
 
     return resultado
 
@@ -275,8 +267,9 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
                 "Envía la foto ahora o presiona No.",
                 ["No"])
         return {"tipo": "interactivo"}
-    if paso_nuevo in ("confirmacion", "reutilizar_bhid", "anular_confirmar"):
-        return resultado
+    if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
     if paso_nuevo == "reporte_empresa":
         botones_si_no_fin(remitente, "¿Generar reporte consolidado de tu empresa?")
         return {"tipo": "interactivo"}
