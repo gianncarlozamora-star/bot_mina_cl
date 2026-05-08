@@ -238,14 +238,8 @@ def _enriquecer_matricula(resultado, paso_anterior, sesion_id, remitente):
         return resultado
 
     # confirmación → botones confirmar/cancelar
-    if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
-        botones_confirmar(remitente, resultado)
-        return {"tipo": "interactivo"}
-
-    # reutilizar BHID anulado → botones sí/no
-    if paso_nuevo == "reutilizar_bhid":
-        botones_si_no(remitente, resultado)
-        return {"tipo": "interactivo"}
+    if paso_nuevo in ("confirmacion", "reutilizar_bhid", "anular_confirmar"):
+        return resultado
 
     return resultado
 
@@ -267,9 +261,8 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
                 "Envía la foto ahora o presiona No.",
                 ["No"])
         return {"tipo": "interactivo"}
-    if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
-        botones_confirmar(remitente, resultado)
-        return {"tipo": "interactivo"}
+    if paso_nuevo in ("confirmacion", "reutilizar_bhid", "anular_confirmar"):
+        return resultado
     if paso_nuevo == "reporte_empresa":
         botones_si_no_fin(remitente, "¿Generar reporte consolidado de tu empresa?")
         return {"tipo": "interactivo"}
