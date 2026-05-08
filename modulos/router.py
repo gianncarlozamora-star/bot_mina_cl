@@ -219,11 +219,12 @@ def _enriquecer_matricula(resultado, paso, sesion, remitente, sid):
 
 
 def _enriquecer_perforacion(resultado, paso, sesion, remitente, sid):
-    """Reemplaza respuestas de texto con interactivos donde aplica."""
     from db.sesiones import obtener_sesion as _get
-    sesion_actual = _get(sesion["id"]) or sesion
+    sesion_actual = _get(sid) or sesion  # ← usar sid no sesion["id"]
     paso_nuevo = sesion_actual.get("paso", paso)
 
+    if paso_nuevo == "sondaje":  # ← después de elegir máquina viene sondaje
+        return resultado         # ← dejar como texto, no volver a mostrar máquinas
     if paso_nuevo == "turno":
         botones_turno(remitente)
         return {"tipo": "interactivo"}
