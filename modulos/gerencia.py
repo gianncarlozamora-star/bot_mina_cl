@@ -176,37 +176,59 @@ def consulta_libre_gerencia(pregunta: str, usuario: dict) -> str:
     }
     return responder_consulta_gerencia(pregunta, datos)
 
-def consultar_foto(texto: str, usuario: dict) -> str:
-    """Busca y retorna la URL de foto de un sondaje."""
+def consultar_foto(texto: str, usuario: dict, sesion=None) -> str:
     from db.sondajes import buscar_sondaje
-    
-    # Extraer código del sondaje del texto
+    from db.sesiones import crear_sesion, actualizar_sesion, cerrar_sesion
+
+    # Si hay sesión activa de selección de foto
+    if sesion and sesion.get("flujo") == "9" and sesion.get("paso") == "seleccion_foto":
+        fotos = sesion["datos"].get("fotos", [])
+        try:
+            idx = int(texto.strip()) - 1
+            if idx < 0 or idx >= len(fotos):
+                return f"❓ Responde con un número del 1 al {len(fotos)}."
+            url, tramo, fecha, turno, maq, bhid = fotos[idx]
+            cerrar_sesion(usuario["id"])
+            return {
+                "tipo":    "imagen",
+                "url":     url,
+                "caption": f"📸 {bhid} | {maq} | Tramo {tramo} | {turno} {fecha}"
+            }
+        except:
+            return "❓ Responde con un número válido."
+
+    # Buscar sondaje
     sondaje = buscar_sondaje(texto)
     if not sondaje:
-        return f"❌ No encontré el sondaje. Especifica el código, ej: *foto del 9999*"
-    
+        return "❌ No encontré el sondaje. Ejemplo: *foto del 9999*"
+
     bhid = sondaje["bhid"]
     rows = ejecutar(
-        """SELECT foto_url, foto_tramo, fecha, turno, m.codigo
+        """SELECT ap.foto_url, ap.foto_tramo, ap.fecha, ap.turno, m.codigo, s.bhid
            FROM avance_perforacion ap
            JOIN cat_maquinas m ON ap.maquina_id = m.id
-           WHERE ap.sondaje_id = (SELECT id FROM sondajes WHERE bhid = %s)
-             AND ap.foto_url IS NOT NULL
+           JOIN sondajes s ON ap.sondaje_id = s.id
+           WHERE s.bhid = %s AND ap.foto_url IS NOT NULL
            ORDER BY ap.creado_en DESC""",
         (bhid,), fetchall=True
     )
     if not rows:
         return f"📸 No hay fotos registradas para *{bhid}*."
-    
+
     if len(rows) == 1:
-        url, tramo, fecha, turno, maq = rows[0]
+        url, tramo, fecha, turno, maq, bhid2 = rows[0]
         return {
             "tipo":    "imagen",
             "url":     url,
             "caption": f"📸 {bhid} | {maq} | Tramo {tramo} | {turno} {fecha}"
         }
-    
-    # Múltiples fotos — mostrar lista
+
+    # Múltiples fotos — crear sesión para selección
+    sid = crear_sesion(usuario["id"], "9")
+    actualizar_sesion(sid, "seleccion_foto", {
+        "fotos": [list(r) for r in rows[:5]]
+    })
+
     lista = "\n".join([
         f"  {i+1}. {r[3]} {r[2]} — {r[4]} tramo {r[1]}"
         for i, r in enumerate(rows[:5])
