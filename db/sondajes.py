@@ -1,745 +1,253 @@
-"""
-FLUJO DE REPORTE DE AVANCE DE PERFORACIÓN v3
-Fixes:
-1. Validación máquina: muestra sondaje activo de esa máquina
-2. Flujo post-consolidado corregido
-3. Advertencia en sondaje provisional si máquina tiene activo
-"""
-from db.sesiones import actualizar_sesion, cerrar_sesion
-from db.sondajes import buscar_sondaje, calcular_valor_turno
-from db.conexion import ejecutar
-from db.usuarios import obtener_maquinas_activas
-from ia.interprete import generar_mensaje_estandarizado, generar_reporte_empresa
-from config import fecha_hora_str
-from config import hora_peru as _hora
+from db.conexion import ejecutar, ejecutar_dict
+from config import hora_peru
 
-FLUJO = "PERFORACION"
+# ── BÚSQUEDA ──────────────────────────────────────────────────
 
-def iniciar(usuario: dict, sesion_id: int) -> str:
-    if usuario.get("maquina"):
-        actualizar_sesion(sesion_id, "sondaje",
-                          {"maquina_id":  usuario["maquina_id"],
-                           "maquina_cod": usuario["maquina"],
-                           "empresa_id":  usuario["empresa_id"],
-                           "sufijo":      usuario.get("sufijo_tarifa", "")})
-        return (
-            f"⛏️ *REPORTE DE PERFORACIÓN*\n"
-            f"🚜 Máquina: *{usuario['maquina']}*\n\n"
-            f"¿Cuál es el *código del sondaje*?\n"
-            f"Ejemplo: 8422, PECLD08422\n"
-        )
-    maquinas = obtener_maquinas_activas()
-    menu = "\n".join([f"  *{i+1}* — {m['codigo']} ({m['empresa']})"
-                      for i, m in enumerate(maquinas)])
-    actualizar_sesion(sesion_id, "maquina",
-                      {"maquina_opciones": [(m["id"], m["codigo"],
-                                             m["empresa"]) for m in maquinas]})
-    return (
-        f"⛏️ *REPORTE DE PERFORACIÓN*\n"
-        f"📅 {fecha_hora_str()}\n\n"
-        f"¿Con qué *máquina* trabajas hoy?\n\n"
-        f"{menu}\n\nResponde con el número.\n"
-    )
+def buscar_sondaje(texto: str) -> dict | None:
+    texto = texto.strip().upper().replace(" ", "")
+    
+    # Extraer últimos 4 dígitos
+    digitos = ''.join(filter(str.isdigit, texto))
+    ultimos4 = digitos[-4:] if len(digitos) >= 4 else digitos
 
-
-def procesar(mensaje: str, usuario: dict, sesion: dict,
-             foto_url: str = None) -> str:
-    paso  = sesion["paso"]
-    datos = sesion["datos"]
-    sid   = sesion["id"]
-    msg   = mensaje.strip()
-
-    # Foto en paso foto
-    if foto_url and paso == "foto":
-        datos["foto_url"]   = foto_url
-        datos["foto_tramo"] = (
-            f"{datos.get('prof_inicio',0):.1f}-"
-            f"{datos.get('prof_final',0):.1f}m"
-        )
-        actualizar_sesion(sid, "confirmacion", datos)
-        return _mostrar_resumen(datos)
-
-    # ── Selección de máquina ──────────────────────────────────
-    if paso == "maquina":
-        opciones = datos.get("maquina_opciones", [])
-        if not msg.isdigit() or int(msg) < 1 or int(msg) > len(opciones):
-            return f"❓ Responde con un número del 1 al {len(opciones)}."
-        idx = int(msg) - 1
-        maq_id, maq_cod, empresa = opciones[idx]
-        row = ejecutar(
-            "SELECT empresa_id, sufijo_tarifa FROM cat_maquinas WHERE id = %s",
-            (maq_id,), fetchone=True
-        )
-        datos.update({
-            "maquina_id":  maq_id,
-            "maquina_cod": maq_cod,
-            "empresa_id":  row[0] if row else 1,
-            "sufijo":      row[1] if row else "",
-        })
-        actualizar_sesion(sid, "sondaje", datos)
-        return (
-            f"✅ Máquina: *{maq_cod}*\n\n"
-            f"¿Cuál es el *código del sondaje*?\n"
-            f"Ejemplo: 8422, PECLD08422\n"
-        )
-
-    # ── Sondaje ───────────────────────────────────────────────
-    elif paso == "sondaje":
-        if msg.lower() == "provisional":
-            ts = _hora().strftime("%d%m-%H%M")
-            bhid_temp = f"TEMP-{datos.get('maquina_cod','X').replace('-','')}-{ts}"
-            datos.update({
-                "bhid": bhid_temp, "es_provisional": True,
-                "diametro": "NQ", "prog_m": 0, "final_m_actual": 0
-            })
-            actualizar_sesion(sid, "turno", datos)
-            return (
-                f"⚠️ Provisional: *{bhid_temp}*\n\n"
-                f"¿Qué turno reportas?\n  *1* — Día\n  *2* — Noche\n"
-            )
-
-        sondaje = buscar_sondaje(msg)
-        if not sondaje:
-            # Mostrar sondaje activo en esta máquina
-            activo = _sondaje_activo_en_maquina(datos.get("maquina_id"))
-            if activo:
-                return (
-                    f"❌ No encontré *{msg}*.\n\n"
-                    f"La máquina *{datos.get('maquina_cod','—')}* "
-                    f"tiene activo:\n"
-                    f"  🔖 *{activo['bhid']}* | {activo['objetivo']}\n"
-                    f"  📏 {activo['final_m']:.1f}/{activo['prog_m']:.1f} m\n\n"
-                    f"¿Era ese? Escríbelo de nuevo o usa *{activo['bhid'][-4:]}*\n"
-                )
-            return f"❌ No encontré *{msg}*. Verifica el código o escribe *provisional*.\n"
-
-        # Validar estado
-        estado_perf = sondaje.get("estado_perforacion") or \
-                      _obtener_estado_perforacion(sondaje["bhid"])
-        if estado_perf == "FINALIZADO":
-            return (
-                f"⛔ *{sondaje['bhid']}* está *FINALIZADO*.\n\n"
-                f"Contacta al geólogo si hay un error.\n"
-            )
-
-        # Validar máquina vs sondaje matriculado
-        maq_matriculada = _obtener_maquina_sondaje(sondaje["bhid"])
-        maq_actual      = datos.get("maquina_cod", "")
-        if maq_matriculada and maq_matriculada != maq_actual:
-            # Mostrar también qué sondaje corresponde a esta máquina
-            activo = _sondaje_activo_en_maquina(datos.get("maquina_id"))
-            aviso_activo = ""
-            if activo:
-                aviso_activo = (
-                    f"\n\n📌 El sondaje activo de *{maq_actual}* es:\n"
-                    f"  🔖 *{activo['bhid']}* | {activo['objetivo']}\n"
-                    f"  📏 {activo['final_m']:.1f}/{activo['prog_m']:.1f} m"
-                )
-            datos.update({
-                "bhid":               sondaje["bhid"],
-                "maquina_matriculada": maq_matriculada,
-                "sondaje_nivel":      sondaje.get("nivel", "—"),
-                "sondaje_labor":      sondaje.get("labor", "—"),
-                "diametro":           sondaje.get("diametro", "NQ"),
-                "prog_m":             sondaje.get("prog_m", 0),
-                "final_m_actual":     sondaje.get("final_m") or 0,
-            })
-            actualizar_sesion(sid, "confirmar_maquina", datos)
-            return (
-                f"⚠️ *{sondaje['bhid']}* está matriculado para "
-                f"*{maq_matriculada}*, no para *{maq_actual}*."
-                f"{aviso_activo}\n\n"
-                f"¿Confirmas igualmente? (*sí* / *no*)\n"
-            )
-
-        datos.update({
-            "bhid":           sondaje["bhid"],
-            "sondaje_nivel":  sondaje.get("nivel", "—"),
-            "sondaje_labor":  sondaje.get("labor", "—"),
-            "diametro":       sondaje.get("diametro", "NQ"),
-            "prog_m":         sondaje.get("prog_m", 0),
-            "final_m_actual": sondaje.get("final_m") or 0,
-        })
-        actualizar_sesion(sid, "turno", datos, sondaje_context=sondaje["bhid"])
-        return _msg_sondaje_ok(sondaje)
-
-    # ── Confirmar máquina incorrecta ──────────────────────────
-    elif paso == "confirmar_maquina":
-        if msg.lower() in ("no", "n"):
-            # Mostrar sondaje correcto de esta máquina
-            activo = _sondaje_activo_en_maquina(datos.get("maquina_id"))
-            if activo:
-                actualizar_sesion(sid, "sondaje", datos)
-                return (
-                    f"El sondaje activo de *{datos.get('maquina_cod','—')}* es:\n"
-                    f"  🔖 *{activo['bhid']}* | {activo['objetivo']}\n"
-                    f"  📏 {activo['final_m']:.1f}/{activo['prog_m']:.1f} m\n\n"
-                    f"Escribe el código correcto:\n"
-                )
-            actualizar_sesion(sid, "sondaje", datos)
-            return "❌ Cancelado. Escribe el código correcto del sondaje:\n"
-        if msg.lower() not in ("sí", "si", "yes", "ok"):
-            return "¿Confirmas? *sí* o *no*."
-        actualizar_sesion(sid, "turno", datos, sondaje_context=datos["bhid"])
-        sondaje = buscar_sondaje(datos["bhid"])
-        return _msg_sondaje_ok(sondaje)
-
-    # ── Turno ─────────────────────────────────────────────────
-    elif paso == "turno":
-        turnos = {"1": "DIA", "2": "NOCHE", "dia": "DIA", "día": "DIA",
-                  "noche": "NOCHE", "d": "DIA", "n": "NOCHE"}
-        turno = turnos.get(msg.lower())
-        if not turno:
-            return "❓ Responde *1* (Día) o *2* (Noche)."
-        datos["turno"] = turno
-        datos["fecha"] = _hora().strftime("%Y-%m-%d")
-
-        # Cargar último avance registrado para pre-llenar prof_inicio
-        ultimo = _ultimo_avance_sondaje(datos.get("bhid"))
-        if ultimo:
-            datos["ultimo_avance_id"]        = ultimo["id"]
-            datos["ultimo_prof_inicio"]      = ultimo["prof_inicio"]
-            datos["ultimo_prof_final"]       = ultimo["prof_final"]
-            datos["prof_inicio_sugerido"]    = ultimo["prof_final"]
-            actualizar_sesion(sid, "prof_inicio", datos)
-            return (
-                f"✅ Turno: *{turno}* | 📅 {_hora().strftime('%d/%m/%Y')}\n\n"
-                f"📏 Último metraje registrado: *{ultimo['prof_final']:.2f} m*\n"
-                f"¿Confirmas que inicias desde ahí?\n"
-                f"  *sí* — Usar {ultimo['prof_final']:.2f} m\n"
-                f"  *no* — Ingresar valor correcto\n"
-            )
-
-        actualizar_sesion(sid, "prof_inicio", datos)
-        return (
-            f"✅ Turno: *{turno}* | 📅 {_hora().strftime('%d/%m/%Y')}\n\n"
-            f"¿*Profundidad inicio* del turno (metros)?\n"
-        )
-
-    # ── Profundidad inicio ────────────────────────────────────
-    elif paso == "prof_inicio":
-        sugerido        = datos.get("prof_inicio_sugerido")
-        ultimo_ini      = datos.get("ultimo_prof_inicio", 0)
-        ultimo_avance_id = datos.get("ultimo_avance_id")
-
-        # Tiene metraje previo → espera sí/no o valor corregido
-        if sugerido is not None:
-            if msg.lower() in ("sí", "si", "yes", "ok", "s"):
-                # Confirma el valor sugerido
-                datos["prof_inicio"] = float(sugerido)
-                datos.pop("prof_inicio_sugerido", None)
-                actualizar_sesion(sid, "prof_final", datos)
-                return f"✅ Inicio confirmado: *{float(sugerido):.2f} m*\n\n¿*Profundidad final* del turno?\n"
-
-            if msg.lower() in ("no", "n"):
-                # Pide el valor correcto
-                actualizar_sesion(sid, "prof_inicio", datos)
-                return (
-                    f"📏 Ingresa el metraje correcto de inicio:\n"
-                    f"   (Debe ser mayor a {float(ultimo_ini):.2f} m, "
-                    f"que fue el inicio del turno anterior)\n"
-                )
-
-            # Intentar parsear como número (valor corregido)
-            try:
-                prof_ini = float(msg.replace(",", "."))
-                if prof_ini < float(ultimo_ini):
-                    return (
-                        f"❌ El valor no puede ser menor a *{float(ultimo_ini):.2f} m*\n"
-                        f"   (inicio del turno anterior — los metrajes se cruzarían)\n"
-                        f"Ingresa un valor mayor a {float(ultimo_ini):.2f} m:\n"
-                    )
-                # Valor válido — actualizar prof_final del turno anterior
-                if ultimo_avance_id and prof_ini != float(sugerido):
-                    ejecutar(
-                        "UPDATE avance_perforacion SET prof_final = %s WHERE id = %s",
-                        (prof_ini, ultimo_avance_id)
-                    )
-                    ejecutar(
-                        "UPDATE sondajes SET profundidad_final = %s WHERE bhid = %s",
-                        (prof_ini, datos.get("bhid"))
-                    )
-                    aviso_correccion = f"⚠️ Metraje anterior corregido: {float(sugerido):.2f} → *{prof_ini:.2f} m*\n\n"
-                else:
-                    aviso_correccion = ""
-                datos["prof_inicio"] = prof_ini
-                datos.pop("prof_inicio_sugerido", None)
-                actualizar_sesion(sid, "prof_final", datos)
-                return f"{aviso_correccion}✅ Inicio: *{prof_ini:.2f} m*\n\n¿*Profundidad final* del turno?\n"
-            except ValueError:
-                return (
-                    f"❓ Responde *sí* para confirmar {float(sugerido):.2f} m, "
-                    f"*no* para ingresar otro valor, o escribe el número directamente.\n"
-                )
-
-        # Sin metraje previo → flujo normal
-        try:
-            prof_ini = float(msg.replace(",", "."))
-            if prof_ini < 0:
-                raise ValueError
-            datos["prof_inicio"] = prof_ini
-        except ValueError:
-            return "❓ Número válido. Ejemplo: 182.50"
-        actualizar_sesion(sid, "prof_final", datos)
-        return f"✅ Inicio: *{prof_ini:.2f} m*\n\n¿*Profundidad final* del turno?\n"
-
-    # ── Profundidad final ─────────────────────────────────────
-    elif paso == "prof_final":
-        try:
-            prof_fin = float(msg.replace(",", "."))
-            if prof_fin <= datos.get("prof_inicio", 0):
-                return f"❓ Debe ser mayor a {datos['prof_inicio']:.2f} m."
-            datos["prof_final"] = prof_fin
-        except ValueError:
-            return "❓ Número válido."
-
-        avance = prof_fin - datos["prof_inicio"]
-        datos["avance"]         = round(avance, 2)
-        datos["retorno_fluido"] = "100%"
-
-        prog_m = float(datos.get("prog_m") or 0)
-        if prog_m > 0 and prof_fin >= prog_m * 0.98:
-            datos["posible_fin"] = True
-
-        actualizar_sesion(sid, "fin_sondaje_manual", datos)
-        return (
-            f"✅ Final: *{prof_fin:.2f} m* | Avance: *{avance:.2f} m*\n\n"
-            f"¿El sondaje *{datos.get('bhid','—')}* ha *finalizado*?\n"
-            f"  *sí* — Marcar FINALIZADO\n"
-            f"  *no* — Continúa perforando\n"
-        )
-
-    # ── Fin sondaje manual (siempre se pregunta) ──────────────
-    elif paso == "fin_sondaje_manual":
-        if msg.lower() in ("sí", "si", "yes", "ok"):
-            datos["fin_manual"] = True
-        elif msg.lower() in ("no", "n"):
-            datos["fin_manual"] = False
-        else:
-            return (
-                f"¿El sondaje *{datos.get('bhid','—')}* ha finalizado?\n"
-                f"  *sí* — Marcar FINALIZADO\n"
-                f"  *no* — Continúa perforando\n"
-            )
-        actualizar_sesion(sid, "cambio_linea", datos)
-        return (
-            f"¿Hubo *cambio de línea* en este turno?\n"
-            f"  *sí* — Registrar cambio\n"
-            f"  *no* — Continuar\n"
-        )
-
-    # ── Cambio de línea ───────────────────────────────────────
-    elif paso == "cambio_linea":
-        if msg.lower() in ("no", "n"):
-            datos["hubo_cambio_linea"] = False
-            sufijo = datos.get("sufijo", "")
-            diam   = datos.get("diametro", "NQ")
-            datos["valor_usd"] = calcular_valor_turno(
-                diam, datos["prof_inicio"], datos["prof_final"], sufijo)
-            actualizar_sesion(sid, "observaciones", datos)
-            return "¿*Observaciones* del turno?\nEscribe las novedades o *ninguna*.\n"
-        if msg.lower() in ("sí", "si", "yes", "ok"):
-            datos["hubo_cambio_linea"] = True
-            datos["linea_anterior"]    = datos.get("diametro", "NQ")
-            diam_actual = datos.get("diametro", "NQ")
-
-            # Secuencia de reducción: PQ→HQ→NQ→BQ
-            opciones_reduccion = {
-                "PQ": [("1","HQ"), ("2","NQ"), ("3","BQ")],
-                "HQ": [("1","NQ"), ("2","BQ")],
-                "NQ": [("1","BQ")],
-                "BQ": [],
-            }
-            opciones = opciones_reduccion.get(diam_actual, [])
-
-            if not opciones:
-                datos["hubo_cambio_linea"] = False
-                actualizar_sesion(sid, "observaciones", datos)
-                return (
-                    f"⛔ *BQ* es el diámetro mínimo, no hay reducción posible.\n\n"
-                    f"¿*Observaciones* del turno?\nEscribe las novedades o *ninguna*.\n"
-                )
-
-            menu_lineas = "\n".join([f"  *{n}* — {d}" for n, d in opciones])
-            datos["lineas_opciones"] = opciones
-            actualizar_sesion(sid, "linea_nueva", datos)
-            return (
-                f"📏 Línea actual: *{diam_actual}*\n\n"
-                f"¿A qué línea cambiaste?\n{menu_lineas}\n"
-            )
-        return "Responde *sí* o *no*."
-
-    # ── Línea nueva ───────────────────────────────────────────
-    elif paso == "linea_nueva":
-        opciones = datos.get("lineas_opciones", [])
-        # Construir mapa dinámico con las opciones permitidas
-        mapa = {n: d for n, d in opciones}
-        # También aceptar el nombre directo
-        for _, d in opciones:
-            mapa[d.lower()] = d
-        linea_nueva = mapa.get(msg.lower()) or mapa.get(msg.upper())
-        if not linea_nueva:
-            menu_lineas = "\n".join([f"  *{n}* — {d}" for n, d in opciones])
-            return f"❓ Opción no válida. Elige:\n{menu_lineas}\n"
-        datos["linea_nueva"] = linea_nueva
-        actualizar_sesion(sid, "metro_cambio", datos)
-        return f"✅ Nueva línea: *{linea_nueva}*\n\n¿En qué *metro exacto* fue el cambio?\nEjemplo: 125.50\n"
-
-    # ── Metro del cambio ──────────────────────────────────────
-    elif paso == "metro_cambio":
-        try:
-            metro    = float(msg.replace(",", "."))
-            prof_ini = datos.get("prof_inicio", 0)
-            prof_fin = datos.get("prof_final", 0)
-            if metro < prof_ini or metro > prof_fin:
-                return f"❓ Debe estar entre {prof_ini:.2f} y {prof_fin:.2f} m."
-            datos["metro_cambio_linea"] = metro
-        except ValueError:
-            return "❓ Número válido. Ejemplo: 125.50"
-
-        sufijo      = datos.get("sufijo", "")
-        linea_ant   = datos.get("linea_anterior", "NQ")
-        linea_nueva = datos.get("linea_nueva", "BQ")
-        costo1      = calcular_valor_turno(linea_ant,   datos["prof_inicio"], metro,              sufijo)
-        costo2      = calcular_valor_turno(linea_nueva, metro,                datos["prof_final"], sufijo)
-        datos["valor_usd"] = costo1 + costo2
-
-        ejecutar("UPDATE sondajes SET diametro = %s WHERE bhid = %s",
-                 (linea_nueva, datos["bhid"]))
-        datos["diametro"] = linea_nueva
-
-        actualizar_sesion(sid, "observaciones", datos)
-        return (
-            f"✅ Cambio registrado: {linea_ant} → {linea_nueva} en *{metro:.2f} m*\n\n"
-            f"¿*Observaciones* del turno?\nEscribe las novedades o *ninguna*.\n"
-        )
-
-    # ── Observaciones ─────────────────────────────────────────
-    elif paso == "observaciones":
-        datos["observaciones"] = "" if msg.lower() == "ninguna" else msg
-        actualizar_sesion(sid, "foto", datos)
-        return "📸 ¿Adjuntar foto?\nEnvía la foto o escribe *no*.\n"
-
-    # ── Foto ──────────────────────────────────────────────────
-    elif paso == "foto":
-        if msg.lower() in ("no", "n", "omitir", "skip"):
-            datos["foto_url"] = None
-        actualizar_sesion(sid, "confirmacion", datos)
-        return _mostrar_resumen(datos)
-
-    # ── Confirmación ──────────────────────────────────────────
-    elif paso == "confirmacion":
-        if msg.lower() in ("no", "cancelar"):
-            cerrar_sesion(usuario["id"])
-            return "❌ Reporte cancelado."
-        if msg.lower() not in ("sí", "si", "yes", "ok", "confirma"):
-            return "¿Confirmas? *sí* o *no*."
-
-        try:
-            sondaje_id = _obtener_sondaje_id(datos["bhid"])
-            if not sondaje_id:
-                cerrar_sesion(usuario["id"])
-                return "⚠️ Sondaje no encontrado en BD."
-
-            ejecutar(
-                """INSERT INTO avance_perforacion (
-                       sondaje_id, maquina_id, fecha, turno,
-                       prof_inicio, prof_final, valor_usd,
-                       retorno_fluido, observaciones,
-                       foto_url, foto_tramo,
-                       hubo_cambio_linea, linea_anterior,
-                       linea_nueva, metro_cambio_linea,
-                       reportado_por, fuente, mensaje_original
-                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOT',%s)""",
-                (
-                    sondaje_id, datos["maquina_id"],
-                    datos["fecha"], datos["turno"],
-                    datos["prof_inicio"], datos["prof_final"],
-                    datos.get("valor_usd"),
-                    datos.get("retorno_fluido","100%"),
-                    datos.get("observaciones"),
-                    datos.get("foto_url"), datos.get("foto_tramo"),
-                    datos.get("hubo_cambio_linea", False),
-                    datos.get("linea_anterior"), datos.get("linea_nueva"),
-                    datos.get("metro_cambio_linea"),
-                    usuario["id"], str(datos)
-                )
-            )
-            ejecutar(
-                """UPDATE sondajes SET
-                       profundidad_final  = %s,
-                       estado_perforacion = CASE
-                           WHEN estado_perforacion = 'PLANIFICADO' THEN 'EN_CURSO'
-                           ELSE estado_perforacion END,
-                       fecha_inicio_perf = COALESCE(fecha_inicio_perf, %s)
-                   WHERE bhid = %s""",
-                (datos["prof_final"], datos["fecha"], datos["bhid"])
-            )
-
-            msg_individual = generar_mensaje_estandarizado(datos)
-            empresa_nombre = _obtener_empresa(datos)
-            datos["msg_individual"]  = msg_individual
-            datos["empresa_nombre"]  = empresa_nombre
-
-            reporte_base = (
-                f"✅ *Reporte registrado*\n📅 {fecha_hora_str()}\n\n"
-                f"─────────────────────\n"
-                f"📋 *TU REPORTE — {datos.get('maquina_cod','—')}:*\n"
-                f"_(Copia y reenvía)_\n\n"
-                f"{msg_individual}\n"
-                f"─────────────────────\n\n"
-            )
-
-            # Sondaje marcado como finalizado por el perforista
-            if datos.get("fin_manual"):
-                ejecutar(
-                    "UPDATE sondajes SET estado_perforacion='FINALIZADO', fecha_fin_perf=%s WHERE bhid=%s",
-                    (datos.get("fecha"), datos["bhid"])
-                )
-                datos["es_fin"] = True
-                reporte_base += f"🎉 *{datos['bhid']}* marcado como *FINALIZADO*\n\n"
-
-            actualizar_sesion(sid, "reporte_empresa", datos)
-            return (
-                reporte_base +
-                f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
-                f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
-            )
-
-        except Exception as e:
-            print(f"[PERFORACION] Error: {e}")
-            return "⚠️ Error al guardar. Intenta de nuevo."
-
-    # ── Confirmar fin de sondaje ──────────────────────────────
-    elif paso == "confirmar_fin_sondaje":
-        if msg.lower() in ("sí", "si", "yes", "ok"):
-            ejecutar(
-                "UPDATE sondajes SET estado_perforacion='FINALIZADO', fecha_fin_perf=%s WHERE bhid=%s",
-                (datos.get("fecha"), datos["bhid"])
-            )
-            datos["es_fin"] = True
-            msg_extra = f"✅ *{datos['bhid']}* marcado como *FINALIZADO* 🎉\n\n"
-        else:
-            msg_extra = "✅ Sondaje continúa en curso.\n\n"
-
-        empresa_nombre = datos.get("empresa_nombre", "tu empresa")
-        actualizar_sesion(sid, "reporte_empresa", datos)
-        return (
-            msg_extra +
-            f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
-            f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
-        )
-
-    # ── Reporte consolidado ───────────────────────────────────
-    elif paso == "reporte_empresa":
-        if msg.lower() == "fin":
-            cerrar_sesion(usuario["id"])
-            return "✅ Sesión cerrada. Escribe *hola* cuando necesites."
-        if msg.lower() in ("no", "n", "otra"):
-            return _menu_siguiente_maquina(sid, datos)
-        if msg.lower() not in ("sí", "si", "yes", "ok"):
-            return "  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar"
-
-        try:
-            empresa_id = datos.get("empresa_id", 1)
-            fecha      = datos.get("fecha")
-            turno      = datos.get("turno")
-            rows = ejecutar(
-                """SELECT ap.prof_inicio, ap.prof_final, ap.metros_avance,
-                          ap.observaciones, m.codigo, s.bhid,
-                          s.nivel_prog, s.labor, s.diametro, s.profundidad_prog
-                   FROM avance_perforacion ap
-                   JOIN sondajes s     ON ap.sondaje_id = s.id
-                   JOIN cat_maquinas m ON ap.maquina_id = m.id
-                   WHERE m.empresa_id = %s AND ap.fecha = %s
-                     AND ap.turno = %s AND ap.estado = 'ACTIVO'
-                   ORDER BY m.codigo""",
-                (empresa_id, fecha, turno), fetchall=True
-            )
-            if not rows:
-                # No hay más reportes — terminar directamente
-                cerrar_sesion(usuario["id"])
-                return (
-                    f"⚠️ Solo hay un reporte registrado para este turno.\n"
-                    f"El reporte individual ya fue enviado. ✅\n\n"
-                    f"Escribe *hola* cuando necesites."
-                )
-
-            reportes = [{
-                "prof_inicio": float(r[0] or 0), "prof_final": float(r[1] or 0),
-                "avance": float(r[2] or 0), "observaciones": r[3] or "",
-                "maquina_cod": r[4], "bhid": r[5], "sondaje_nivel": r[6],
-                "sondaje_labor": r[7], "diametro": r[8], "prog_m": r[9],
-                "turno": turno, "fecha": fecha,
-            } for r in rows]
-
-            # Detectar máquinas de la empresa que NO reportaron
-            maquinas_empresa = ejecutar(
-                """SELECT codigo FROM cat_maquinas
-                   WHERE empresa_id = %s AND activo = TRUE""",
-                (empresa_id,), fetchall=True
-            )
-            maquinas_reportaron = {r["maquina_cod"] for r in reportes}
-            sin_reporte = [
-                m[0] for m in (maquinas_empresa or [])
-                if m[0] not in maquinas_reportaron
-            ]
-
-            emp_row = ejecutar("SELECT nombre FROM cat_empresas WHERE id=%s",
-                               (empresa_id,), fetchone=True)
-            empresa_nombre = emp_row[0] if emp_row else "Empresa"
-            consolidado    = generar_reporte_empresa(
-                reportes, empresa_nombre, fecha,
-                maquinas_sin_reporte=sin_reporte
-            )
-
-            # Después del consolidado → terminar o registrar otra máquina
-            actualizar_sesion(sid, "post_consolidado", datos)
-            return (
-                f"─────────────────────\n"
-                f"🏢 *{empresa_nombre.upper()} — TURNO {turno}*\n"
-                f"_(Copia y reenvía)_\n\n{consolidado}\n"
-                f"─────────────────────\n\n"
-                f"¿Registrar otra máquina?\n"
-                f"  *sí* — Continuar\n  *no* — Terminar\n"
-            )
-        except Exception as e:
-            print(f"[PERFORACION] Error consolidado: {e}")
-            cerrar_sesion(usuario["id"])
-            return "⚠️ Error generando consolidado. Tu reporte ya fue guardado."
-
-    # ── Post consolidado ──────────────────────────────────────
-    elif paso == "post_consolidado":
-        if msg.lower() in ("no", "n", "fin", "terminar"):
-            cerrar_sesion(usuario["id"])
-            return "✅ Listo. Escribe *hola* cuando necesites."
-        if msg.lower() in ("sí", "si", "yes", "ok"):
-            return _menu_siguiente_maquina(sid, datos)
-        return "*sí* para otra máquina o *no* para terminar."
-
-    return "❓ Escribe *hola* para reiniciar."
-
-
-# ── HELPERS ───────────────────────────────────────────────────
-
-def _sondaje_activo_en_maquina(maquina_id: int) -> dict | None:
-    """Retorna el sondaje EN_CURSO de una máquina específica."""
-    if not maquina_id:
-        return None
+    # Buscar en tabla directa, no en vista
     row = ejecutar(
-        """SELECT s.bhid, s.profundidad_prog, s.profundidad_final,
-                  s.tajo_objetivo, s.cuerpo_objetivo
+        """SELECT s.bhid, sc.nombre, s.tajo_objetivo, s.cuerpo_objetivo,
+                  s.campana, m.codigo, e.codigo,
+                  s.profundidad_prog, s.profundidad_final,
+                  CASE WHEN s.profundidad_prog > 0 
+                       THEN ROUND((COALESCE(s.profundidad_final,0) / s.profundidad_prog * 100)::numeric, 1)
+                       ELSE 0 END,
+                  s.diametro, s.nivel_prog, s.labor,
+                  s.estado_logueo, s.estado_muestreo, s.estado_rqd,
+                  s.estado_fotografia, s.estado_densidad,
+                  s.estado_laboratorio, s.estado_modelado,
+                  s.fecha_inicio_perf, s.fecha_fin_perf, s.id
            FROM sondajes s
-           WHERE s.maquina_id = %s
-             AND s.estado_perforacion = 'EN_CURSO'
-           ORDER BY s.fecha_inicio_perf DESC LIMIT 1""",
-        (maquina_id,), fetchone=True
-    )
-    if not row:
-        return None
-    return {
-        "bhid":     row[0],
-        "prog_m":   float(row[1] or 0),
-        "final_m":  float(row[2] or 0),
-        "objetivo": row[3] or row[4] or "—",
-    }
-
-def _msg_sondaje_ok(sondaje: dict) -> str:
-    estado = sondaje.get("estado_perforacion", "") if sondaje else ""
-    estado_str = ""
-    if estado == "PLANIFICADO":
-        estado_str = "\n   🔵 Primer avance — iniciará EN CURSO"
-    elif estado == "EN_CURSO":
-        estado_str = "\n   🟢 EN CURSO"
-    return (
-        f"✅ Sondaje: *{sondaje['bhid']}*\n"
-        f"   Nv.{sondaje.get('nivel','—')} | {sondaje.get('labor','—')}"
-        f"{estado_str}\n"
-        f"   Prog: {sondaje.get('prog_m','—')} m | "
-        f"Actual: {sondaje.get('final_m') or 0:.1f} m\n\n"
-        f"¿Qué turno reportas?\n  *1* — Día\n  *2* — Noche\n"
-    )
-
-def _menu_siguiente_maquina(sid: int, datos: dict) -> str:
-    maquinas = obtener_maquinas_activas()
-    menu = "\n".join([f"  *{i+1}* — {m['codigo']} ({m['empresa']})"
-                      for i, m in enumerate(maquinas)])
-    datos_nueva = {
-        "empresa_id":      datos.get("empresa_id"),
-        "turno":           datos.get("turno"),
-        "fecha":           datos.get("fecha"),
-        "maquina_opciones":[(m["id"], m["codigo"],
-                              m["empresa"]) for m in maquinas],
-    }
-    actualizar_sesion(sid, "maquina", datos_nueva)
-    return (
-        f"⛏️ *SIGUIENTE MÁQUINA*\n"
-        f"Turno: *{datos.get('turno','—')}* | {datos.get('fecha','—')}\n\n"
-        f"{menu}\n\nResponde con el número.\n"
-    )
-
-def _mostrar_resumen(datos: dict) -> str:
-    cambio_str = ""
-    if datos.get("hubo_cambio_linea"):
-        cambio_str = (
-            f"\n🔄 Cambio línea: {datos.get('linea_anterior','—')} → "
-            f"{datos.get('linea_nueva','—')} "
-            f"en {datos.get('metro_cambio_linea',0):.1f} m"
-        )
-    return (
-        f"📋 *RESUMEN DEL REPORTE*\n{'─'*30}\n"
-        f"🔖 Sondaje:  *{datos.get('bhid','—')}*\n"
-        f"🚜 Máquina:  {datos.get('maquina_cod','—')}\n"
-        f"⏱️ Turno:    {datos.get('turno','—')} | {datos.get('fecha','—')}\n"
-        f"📏 Desde:    {datos.get('prof_inicio',0):.2f} m\n"
-        f"📏 Hasta:    {datos.get('prof_final',0):.2f} m\n"
-        f"➡️ Avance:   *{datos.get('avance',0):.2f} m*"
-        f"{cambio_str}\n"
-        f"📝 Obs:      {datos.get('observaciones','Ninguna') or 'Ninguna'}\n"
-        f"📸 Foto:     {'✅' if datos.get('foto_url') else 'No'}\n"
-        f"{'─'*30}\n\n¿Confirmas? (*sí* / *no*)\n"
-    )
-
-def _obtener_sondaje_id(bhid: str) -> int | None:
-    row = ejecutar("SELECT id FROM sondajes WHERE bhid=%s", (bhid,), fetchone=True)
-    return row[0] if row else None
-
-def _obtener_empresa(datos: dict) -> str:
-    row = ejecutar("SELECT codigo FROM cat_empresas WHERE id=%s",
-                   (datos.get("empresa_id",1),), fetchone=True)
-    return row[0] if row else "tu empresa"
-
-def _obtener_estado_perforacion(bhid: str) -> str:
-    row = ejecutar("SELECT estado_perforacion FROM sondajes WHERE bhid=%s",
-                   (bhid,), fetchone=True)
-    return row[0] if row else "PLANIFICADO"
-
-def _obtener_maquina_sondaje(bhid: str) -> str | None:
-    row = ejecutar(
-        """SELECT m.codigo FROM sondajes s
+           JOIN cat_subcategorias sc ON s.subcategoria_id = sc.id
            JOIN cat_maquinas m ON s.maquina_id = m.id
-           WHERE s.bhid = %s""",
-        (bhid,), fetchone=True
-    )
-    return row[0] if row else None
-
-def _ultimo_avance_sondaje(bhid: str) -> dict | None:
-    """Retorna el último avance registrado de un sondaje con id, prof_inicio y prof_final."""
-    if not bhid:
-        return None
-    row = ejecutar(
-        """SELECT ap.id, ap.prof_inicio, ap.prof_final
-           FROM avance_perforacion ap
-           JOIN sondajes s ON ap.sondaje_id = s.id
-           WHERE s.bhid = %s AND ap.estado = 'ACTIVO'
-           ORDER BY ap.fecha DESC, ap.id DESC
+           JOIN cat_empresas e ON s.empresa_id = e.id
+           WHERE s.bhid LIKE %s
            LIMIT 1""",
-        (bhid,), fetchone=True
+        (f"%{ultimos4}",), fetchone=True
     )
     if not row:
         return None
-    return {
-        "id":          row[0],
-        "prof_inicio": float(row[1] or 0),
-        "prof_final":  float(row[2] or 0),
-    }
+    
+    cols = ["bhid","subcategoria","tajo_objetivo","cuerpo_objetivo",
+            "campana","maquina","empresa","prog_m","final_m","avance_pct",
+            "diametro","nivel","labor","estado_logueo","estado_muestreo",
+            "estado_rqd","estado_fotografia","estado_densidad",
+            "estado_laboratorio","estado_modelado",
+            "fecha_inicio_perf","fecha_fin_perf","id"]
+    return dict(zip(cols, row))
+
+def _row_to_dict(row) -> dict:
+    cols = [
+        "bhid", "subcategoria", "tajo_objetivo", "cuerpo_objetivo",
+        "campana", "maquina", "empresa", "prog_m", "final_m",
+        "avance_pct", "diametro", "nivel", "labor",
+        "estado_logueo", "estado_muestreo", "estado_rqd",
+        "estado_fotografia", "estado_densidad", "estado_laboratorio",
+        "estado_modelado", "fecha_inicio_perf", "fecha_fin_perf"
+    ]
+    return dict(zip(cols, row))
+
+def obtener_sondaje_completo(bhid: str) -> dict | None:
+    row = ejecutar_dict(
+        "SELECT * FROM sondajes WHERE bhid = %s", (bhid,), fetchone=True
+    )
+    return row
+
+def sondajes_por_tajo(tajo: str) -> list:
+    rows = ejecutar(
+        """SELECT bhid, prog_m, final_m, avance_pct,
+                  estado_logueo, estado_laboratorio, estado_modelado,
+                  maquina, empresa
+           FROM v_estado_sondajes
+           WHERE UPPER(tajo_objetivo) = UPPER(%s)
+           ORDER BY bhid""",
+        (tajo,), fetchall=True
+    )
+    return rows
+
+def sondajes_por_objetivo(objetivo: str) -> list:
+    """Para gerencia: cuántos DDH se han perforado al objetivo X."""
+    rows = ejecutar(
+        """SELECT bhid, subcategoria, prog_m, final_m, avance_pct,
+                  estado_logueo, estado_laboratorio, estado_modelado,
+                  maquina, empresa, tajo_objetivo, cuerpo_objetivo
+           FROM v_estado_sondajes
+           WHERE UPPER(tajo_objetivo)  LIKE UPPER(%s)
+              OR UPPER(cuerpo_objetivo) LIKE UPPER(%s)
+           ORDER BY bhid""",
+        (f"%{objetivo}%", f"%{objetivo}%"), fetchall=True
+    )
+    return rows
+
+def resumen_campana(campana: str = None) -> dict:
+    filtro = "WHERE s.campana = %s" if campana else ""
+    params = (campana,) if campana else ()
+    row = ejecutar(
+        f"""SELECT
+               COUNT(*)                                                    AS total,
+               COUNT(*) FILTER (WHERE s.profundidad_final IS NOT NULL)    AS perforados,
+               COALESCE(SUM(s.profundidad_final), 0)                      AS metros_perforados,
+               COALESCE(SUM(s.profundidad_prog), 0)                       AS metros_prog,
+               COUNT(*) FILTER (WHERE s.estado_logueo     = 'COMPLETADO') AS logueados,
+               COUNT(*) FILTER (WHERE s.estado_muestreo   = 'COMPLETADO') AS muestreados,
+               COUNT(*) FILTER (WHERE s.estado_laboratorio= 'COMPLETADO') AS con_leyes,
+               COUNT(*) FILTER (WHERE s.estado_modelado   = 'COMPLETADO') AS modelados
+           FROM sondajes s
+           JOIN cat_subcategorias sc ON s.subcategoria_id = sc.id
+           WHERE sc.fase_activa = TRUE {('AND s.campana = %s' if campana else '')}""",
+        params, fetchone=True
+    )
+    if not row:
+        return {}
+    cols = ["total","perforados","metros_perforados","metros_prog",
+            "logueados","muestreados","con_leyes","modelados"]
+    return dict(zip(cols, row))
+
+# ── MATRICULACIÓN ─────────────────────────────────────────────
+
+def matricular_sondaje(datos: dict, usuario_id: int) -> str:
+    """
+    Inserta un nuevo sondaje. Retorna el BHID generado.
+    datos debe contener todos los campos requeridos.
+    """
+    row = ejecutar(
+        """INSERT INTO sondajes (
+               bhid, es_provisional,
+               categoria_id, subcategoria_id, campana,
+               tajo_objetivo, cuerpo_objetivo, profundidad_prog,
+               azimut_prog, dip_prog, nivel_prog, labor, diametro,
+               empresa_id, maquina_id, matriculado_por
+           ) VALUES (
+               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+           )
+           ON CONFLICT (bhid) DO NOTHING
+           RETURNING bhid""",
+        (
+            datos["bhid"], datos.get("es_provisional", False),
+            datos["categoria_id"], datos["subcategoria_id"],
+            datos.get("campana"),
+            datos.get("tajo_objetivo"), datos.get("cuerpo_objetivo"),
+            datos["profundidad_prog"],
+            datos.get("azimut_prog"), datos.get("dip_prog"),
+            datos.get("nivel_prog"), datos.get("labor"),
+            datos.get("diametro", "NQ"),
+            datos["empresa_id"], datos["maquina_id"],
+            usuario_id,
+        ),
+        fetchone=True
+    )
+    return row[0] if row else None
+
+def vincular_provisional(bhid_provisional: str, bhid_definitivo: str) -> bool:
+    """Vincula un BHID provisional con el código definitivo asignado."""
+    rows = ejecutar(
+        """UPDATE sondajes
+           SET bhid = %s, es_provisional = FALSE, bhid_definitivo = %s
+           WHERE bhid = %s""",
+        (bhid_definitivo, bhid_definitivo, bhid_provisional)
+    )
+    return rows > 0
+
+def siguiente_bhid(prefijo: str = "PECLD") -> str:
+    """Sugiere el siguiente código DDH basado en el máximo existente."""
+    row = ejecutar(
+        """SELECT MAX(CAST(SUBSTRING(bhid FROM '[0-9]+$') AS INTEGER))
+           FROM sondajes WHERE bhid LIKE %s""",
+        (f"{prefijo}%",), fetchone=True
+    )
+    siguiente = (row[0] or 0) + 1
+    return f"{prefijo}{siguiente:05d}"
+
+# ── ACTUALIZACIÓN DE ETAPAS ───────────────────────────────────
+
+MAPA_ETAPAS = {
+    "logueo":      "estado_logueo",
+    "muestreo":    "estado_muestreo",
+    "rqd":         "estado_rqd",
+    "fotografia":  "estado_fotografia",
+    "densidad":    "estado_densidad",
+    "laboratorio": "estado_laboratorio",
+    "modelado":    "estado_modelado",
+}
+
+def actualizar_estado_etapa(bhid: str, etapa: str, estado: str) -> bool:
+    campo = MAPA_ETAPAS.get(etapa.lower())
+    if not campo:
+        return False
+    rows = ejecutar(
+        f"UPDATE sondajes SET {campo} = %s WHERE bhid = %s",
+        (estado.upper(), bhid)
+    )
+    return rows > 0
+
+# ── CATÁLOGOS PARA FORMULARIOS ────────────────────────────────
+
+def obtener_subcategorias_activas() -> list:
+    rows = ejecutar(
+        """SELECT sc.id, sc.codigo, sc.nombre, sc.clasificacion_ddh
+           FROM cat_subcategorias sc
+           JOIN cat_categorias c ON sc.categoria_id = c.id
+           WHERE sc.fase_activa = TRUE AND c.codigo = 'OPE'
+           ORDER BY sc.id""",
+        fetchall=True
+    )
+    return [{"id": r[0], "codigo": r[1], "nombre": r[2], "clasificacion": r[3]}
+            for r in rows]
+
+def obtener_maquinas_con_empresa() -> list:
+    rows = ejecutar(
+        """SELECT m.id, m.codigo, e.codigo AS empresa, e.id AS empresa_id
+           FROM cat_maquinas m
+           JOIN cat_empresas e ON m.empresa_id = e.id
+           WHERE m.activo = TRUE
+           ORDER BY e.codigo, m.codigo""",
+        fetchall=True
+    )
+    return [{"id": r[0], "codigo": r[1], "empresa": r[2], "empresa_id": r[3]}
+            for r in rows]
+
+def obtener_tarifa(diametro: str, metros: float, sufijo: str) -> float | None:
+    row = ejecutar(
+        "SELECT fn_get_tarifa(%s, %s, %s)",
+        (diametro, metros, sufijo), fetchone=True
+    )
+    return float(row[0]) if row and row[0] else None
+
+def calcular_valor_turno(diametro: str, prof_inicio: float,
+                          prof_final: float, sufijo: str) -> float:
+    total = 0.0
+    metro_actual = float(prof_inicio)
+    max_iter = 50  # evitar loop infinito
+    iteraciones = 0
+
+    while metro_actual < float(prof_final) and iteraciones < max_iter:
+        iteraciones += 1
+        tarifa_row = ejecutar(
+            """SELECT precio_usd, tramo_hasta
+               FROM cat_tarifas
+               WHERE diametro = %s AND sufijo = %s
+                 AND %s >= tramo_desde AND %s < tramo_hasta
+                 AND fase_activa = TRUE
+               LIMIT 1""",
+            (diametro, sufijo, int(metro_actual), int(metro_actual)),
+            fetchone=True
+        )
+        if not tarifa_row:
+            # No hay tarifa para este tramo, saltar 100m y continuar
+            metro_actual += 100.0
+            break
+        precio     = float(tarifa_row[0])
+        tramo_hasta = float(tarifa_row[1])
+        metros_en_tramo = min(float(prof_final), tramo_hasta) - metro_actual
+        if metros_en_tramo <= 0:
+            break
+        total += metros_en_tramo * precio
+        metro_actual = tramo_hasta
+
+    return round(total, 2)
