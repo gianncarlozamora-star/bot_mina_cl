@@ -16,6 +16,35 @@ def _cloudinary_config():
     r = urllib.parse.urlparse(CLOUDINARY_URL)
     return r.username, r.password, r.hostname
 
+def subir_archivo_cloudinary(ruta_local: str, carpeta: str = "cerro_lindo_dxf",
+                              resource_type: str = "raw") -> str | None:
+    """Sube cualquier archivo (DXF, PDF, etc.) a Cloudinary como raw."""
+    try:
+        api_key, api_secret, cloud_name = _cloudinary_config()
+        if not cloud_name:
+            return None
+        import hashlib, time
+        timestamp = str(int(time.time()))
+        firma_str = f"folder={carpeta}&timestamp={timestamp}{api_secret}"
+        signature = hashlib.sha1(firma_str.encode()).hexdigest()
+        with open(ruta_local, "rb") as f:
+            resp = requests.post(
+                f"https://api.cloudinary.com/v1_1/{cloud_name}/{resource_type}/upload",
+                data={"api_key": api_key, "timestamp": timestamp,
+                      "signature": signature, "folder": carpeta},
+                files={"file": f}, timeout=30
+            )
+        if resp.status_code == 200:
+            url = resp.json().get("secure_url")
+            print(f"   Cloudinary DXF OK: {url}")
+            return url
+        print(f"   Cloudinary error: {resp.text}")
+        return None
+    except Exception as e:
+        print(f"❌ Error Cloudinary doc: {e}")
+        return None
+
+
 def subir_foto_cloudinary(ruta_local: str, carpeta: str = "cerro_lindo") -> str | None:
     try:
         api_key, api_secret, cloud_name = _cloudinary_config()
@@ -106,7 +135,33 @@ def webhook():
             print(f"   Foto URL: {foto_url}")
 
         elif tipo == "document":
-            mensaje = f"[Documento: {msg_obj['document'].get('filename','')}]"
+            doc       = msg_obj["document"]
+            filename  = doc.get("filename", "archivo")
+            media_id  = doc.get("id")
+            extension = filename.split(".")[-1].lower() if "." in filename else ""
+            print(f"   Documento: {filename}")
+            if media_id and extension in ("dxf", "pdf", "zip", "dwg"):
+                ruta_local = _descargar_media(media_id, filename)
+                if ruta_local:
+                    doc_url = subir_archivo_cloudinary(ruta_local)
+                    try:
+                        os.remove(ruta_local)
+                    except:
+                        pass
+                    if doc_url:
+                        # Inyectar en sesión activa como dxf_archivo_url
+                        _inyectar_archivo_en_sesion(remitente, doc_url)
+                        foto_url = doc_url
+                        mensaje  = f"[dxf:{filename}]"
+                    else:
+                        mensaje = "error_subida"
+                else:
+                    mensaje = "error_descarga"
+            else:
+                mensaje = f"[Documento: {filename}]"
+                enviar_mensaje(remitente,
+                    f"📎 Archivo *{filename}* recibido pero no es un formato soportado.\n"
+                    f"Formatos válidos: DXF, PDF, ZIP, DWG")
 
         else:
             enviar_mensaje(remitente,
@@ -253,7 +308,7 @@ def enviar_imagen(telefono: str, url_imagen: str, caption: str = ""):
     except Exception as e:
         print(f"❌ Error enviando imagen: {e}")
 
-def _descargar_media(media_id: str) -> str | None:
+def _descargar_media(media_id: str, filename: str = None) -> str | None:
     try:
         headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
         r = requests.get(f"https://graph.facebook.com/v18.0/{media_id}",
@@ -266,13 +321,38 @@ def _descargar_media(media_id: str) -> str | None:
         r2 = requests.get(url_media, headers=headers, timeout=30)
         if r2.status_code != 200:
             return None
-        ruta = f"/tmp/foto_{media_id}.jpg"
+        ext  = filename.split(".")[-1] if filename and "." in filename else "jpg"
+        ruta = f"/tmp/media_{media_id}.{ext}"
         with open(ruta, "wb") as f:
             f.write(r2.content)
         return ruta
     except Exception as e:
         print(f"❌ Error descargando media: {e}")
         return None
+
+def _inyectar_archivo_en_sesion(remitente: str, url: str):
+    """Guarda el URL del archivo en la sesión activa del usuario."""
+    try:
+        from db.usuarios import obtener_usuario
+        from db.sesiones import obtener_sesion
+        from db.conexion import ejecutar
+        usuario = obtener_usuario(remitente)
+        if not usuario:
+            return
+        sesion = obtener_sesion(usuario["id"])
+        if not sesion:
+            return
+        datos = sesion.get("datos", {})
+        datos["dxf_archivo_url"] = url
+        import json
+        ejecutar(
+            "UPDATE sesiones_bot SET datos = %s WHERE id = %s",
+            (json.dumps(datos), sesion["id"])
+        )
+        print(f"   DXF inyectado en sesión: {url}")
+    except Exception as e:
+        print(f"❌ Error inyectando DXF: {e}")
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
