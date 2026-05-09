@@ -192,7 +192,32 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         if not turno:
             return "❓ Responde *1* (Día) o *2* (Noche)."
         datos["turno"] = turno
-        datos["fecha"] = _hora().strftime("%Y-%m-%d")
+
+        # Fix fecha turno NOCHE: si reportan entre 00:00 y 10:00am
+        # el turno corresponde al día anterior
+        hora_actual = _hora()
+        if turno == "NOCHE" and hora_actual.hour < 10:
+            from datetime import timedelta
+            fecha_reporte = (hora_actual - timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+            fecha_reporte = hora_actual.strftime("%Y-%m-%d")
+        datos["fecha"] = fecha_reporte
+
+        # Validar turno duplicado
+        duplicado = _verificar_turno_duplicado(
+            datos.get("bhid"), fecha_reporte, turno
+        )
+        if duplicado:
+            cerrar_sesion(usuario["id"])
+            return (
+                f"⚠️ *Ya existe un reporte {turno} del {duplicado['fecha_fmt']}*\n"
+                f"para *{datos.get('bhid','—')}*:\n"
+                f"  📏 {duplicado['prof_inicio']:.2f} → {duplicado['prof_final']:.2f} m "
+                f"| +{duplicado['avance']:.2f} m\n"
+                f"  🚜 {duplicado['maquina']} | 👤 {duplicado['reportado_por']}\n\n"
+                f"Si hubo un error, escribe *anular reporte* para eliminarlo\n"
+                f"y luego vuelve a reportar.\n"
+            )
 
         # Cargar último avance registrado para pre-llenar prof_inicio
         ultimo = _ultimo_avance_sondaje(datos.get("bhid"))
@@ -203,7 +228,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             datos["prof_inicio_sugerido"]    = ultimo["prof_final"]
             actualizar_sesion(sid, "prof_inicio", datos)
             return (
-                f"✅ Turno: *{turno}* | 📅 {_hora().strftime('%d/%m/%Y')}\n\n"
+                f"✅ Turno: *{turno}* | 📅 {hora_actual.strftime('%d/%m/%Y')}\n\n"
                 f"📏 Último metraje registrado: *{ultimo['prof_final']:.2f} m*\n"
                 f"¿Confirmas que inicias desde ahí?\n"
                 f"  *sí* — Usar {ultimo['prof_final']:.2f} m\n"
@@ -212,9 +237,45 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
 
         actualizar_sesion(sid, "prof_inicio", datos)
         return (
-            f"✅ Turno: *{turno}* | 📅 {_hora().strftime('%d/%m/%Y')}\n\n"
+            f"✅ Turno: *{turno}* | 📅 {hora_actual.strftime('%d/%m/%Y')}\n\n"
             f"¿*Profundidad inicio* del turno (metros)?\n"
         )
+
+    # ── Turno duplicado ──────────────────────────────────────
+    elif paso == "turno_duplicado":
+        if msg.lower() in ("cancelar", "no", "n"):
+            cerrar_sesion(usuario["id"])
+            return "❌ Reporte cancelado. Escribe *hola* cuando necesites."
+        if msg.lower() not in ("corregir", "si", "sí", "ok"):
+            return (
+                f"¿Qué deseas hacer?\n"
+                f"  *corregir* — Reemplazar el reporte existente\n"
+                f"  *cancelar* — Salir sin cambios\n"
+            )
+        # Anular el avance duplicado y continuar
+        dup_id = datos.get("duplicado_id")
+        if dup_id:
+            ejecutar(
+                "UPDATE avance_perforacion SET estado = 'ANULADO' WHERE id = %s",
+                (dup_id,)
+            )
+        # Continuar con prof_inicio usando el último avance anterior al anulado
+        ultimo = _ultimo_avance_sondaje(datos.get("bhid"))
+        if ultimo:
+            datos["ultimo_avance_id"]     = ultimo["id"]
+            datos["ultimo_prof_inicio"]   = ultimo["prof_inicio"]
+            datos["ultimo_prof_final"]    = ultimo["prof_final"]
+            datos["prof_inicio_sugerido"] = ultimo["prof_final"]
+            actualizar_sesion(sid, "prof_inicio", datos)
+            return (
+                f"✅ Reporte anterior anulado. Ingresa los datos correctos.\n\n"
+                f"📏 Último metraje registrado: *{ultimo['prof_final']:.2f} m*\n"
+                f"¿Confirmas que inicias desde ahí?\n"
+                f"  *sí* — Usar {ultimo['prof_final']:.2f} m\n"
+                f"  *no* — Ingresar valor correcto\n"
+            )
+        actualizar_sesion(sid, "prof_inicio", datos)
+        return "✅ Reporte anterior anulado.\n\n¿*Profundidad inicio* del turno (metros)?\n"
 
     # ── Profundidad inicio ────────────────────────────────────
     elif paso == "prof_inicio":
@@ -618,6 +679,61 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return _menu_siguiente_maquina(sid, datos)
         return "*sí* para otra máquina o *no* para terminar."
 
+    # ── Anular último reporte ─────────────────────────────────
+    elif paso == "anular_reporte":
+        if msg.lower() in ("no", "cancelar", "n"):
+            cerrar_sesion(usuario["id"])
+            return "❌ Cancelado. El reporte sigue activo."
+        if msg.lower() not in ("sí", "si", "yes", "ok", "confirma"):
+            return "¿Confirmas la anulación? *sí* o *no*."
+
+        reporte_id = datos.get("reporte_id")
+        if not reporte_id:
+            cerrar_sesion(usuario["id"])
+            return "⚠️ No se encontró el reporte. Intenta de nuevo."
+
+        row = ejecutar(
+            "SELECT estado FROM avance_perforacion WHERE id = %s",
+            (reporte_id,), fetchone=True
+        )
+        if not row or row[0] != "ACTIVO":
+            cerrar_sesion(usuario["id"])
+            return "⚠️ El reporte ya no está activo."
+
+        ejecutar(
+            "UPDATE avance_perforacion SET estado = \'ANULADO\' WHERE id = %s",
+            (reporte_id,)
+        )
+
+        bhid = datos.get("bhid")
+        anterior = ejecutar(
+            "SELECT prof_final FROM avance_perforacion "
+            "WHERE sondaje_id = (SELECT id FROM sondajes WHERE bhid = %s) "
+            "AND estado = \'ACTIVO\' ORDER BY id DESC LIMIT 1",
+            (bhid,), fetchone=True
+        )
+        nueva_prof = float(anterior[0]) if anterior else None
+        if nueva_prof is not None:
+            ejecutar(
+                "UPDATE sondajes SET profundidad_final = %s WHERE bhid = %s",
+                (nueva_prof, bhid)
+            )
+
+        cerrar_sesion(usuario["id"])
+        cerrar_sesion(usuario["id"])
+        bhid_r  = datos.get("bhid", "—")
+        turno_r = datos.get("turno", "—")
+        fecha_r = datos.get("fecha_fmt", "—")
+        pi_r    = float(datos.get("prof_inicio", 0))
+        pf_r    = float(datos.get("prof_final", 0))
+        return (
+            f"✅ *Reporte anulado*\n\n"
+            f"🔖 {bhid_r} | {turno_r} {fecha_r}\n"
+            f"📏 {pi_r:.2f} → {pf_r:.2f} m\n\n"
+            f"Ya puedes volver a reportar este turno.\n"
+            f"Escribe *perforación* para continuar."
+        )
+
     return "❓ Escribe *hola* para reiniciar."
 
 
@@ -723,6 +839,41 @@ def _obtener_maquina_sondaje(bhid: str) -> str | None:
         (bhid,), fetchone=True
     )
     return row[0] if row else None
+
+def _verificar_turno_duplicado(bhid: str, fecha: str, turno: str) -> dict | None:
+    """Verifica si ya existe un reporte activo para ese sondaje+fecha+turno."""
+    if not bhid or not fecha or not turno:
+        return None
+    row = ejecutar(
+        """SELECT ap.id, ap.prof_inicio, ap.prof_final,
+                  ap.fecha, m.codigo, u.nombre
+           FROM avance_perforacion ap
+           JOIN sondajes s      ON ap.sondaje_id = s.id
+           JOIN cat_maquinas m  ON ap.maquina_id = m.id
+           LEFT JOIN usuarios_bot u ON ap.reportado_por = u.id
+           WHERE s.bhid = %s AND ap.fecha = %s
+             AND ap.turno = %s AND ap.estado = 'ACTIVO'
+           ORDER BY ap.id DESC LIMIT 1""",
+        (bhid, fecha, turno), fetchone=True
+    )
+    if not row:
+        return None
+    prof_ini = float(row[1] or 0)
+    prof_fin = float(row[2] or 0)
+    try:
+        from datetime import datetime
+        fecha_fmt = datetime.strptime(str(row[3]), "%Y-%m-%d").strftime("%d/%m/%Y")
+    except:
+        fecha_fmt = str(row[3])
+    return {
+        "id":            row[0],
+        "prof_inicio":   prof_ini,
+        "prof_final":    prof_fin,
+        "avance":        round(prof_fin - prof_ini, 2),
+        "fecha_fmt":     fecha_fmt,
+        "maquina":       row[4] or "—",
+        "reportado_por": row[5] or "—",
+    }
 
 def _ultimo_avance_sondaje(bhid: str) -> dict | None:
     """Retorna el último avance registrado de un sondaje con id, prof_inicio y prof_final."""
