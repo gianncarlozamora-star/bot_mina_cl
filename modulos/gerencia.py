@@ -232,22 +232,17 @@ def consultar_foto(texto: str, usuario: dict, sesion=None) -> str:
             idx = int(texto.strip()) - 1
             if idx < 0 or idx >= len(fotos):
                 return f"❓ Responde con un número del 1 al {len(fotos)}."
-            # fotos[i] = [url, tramo, fecha, fuente_label, tecnico, bhid, origen]
             foto         = fotos[idx]
             url          = foto[0]
             tramo        = foto[1]
             fecha        = foto[2]
             fuente_label = foto[3]
-            tecnico      = foto[4]
             bhid         = foto[5]
             cerrar_sesion(usuario["id"])
             return {
                 "tipo":    "imagen",
                 "url":     url,
-                "caption": (
-                    f"📸 {bhid} | {fuente_label} | "
-                    f"Tramo {tramo} | {fecha} | {tecnico}"
-                )
+                "caption": f"📸 {bhid} | {fuente_label} | Tramo {tramo} | {fecha}"
             }
         except Exception as e:
             print(f"[GERENCIA] Error selección foto: {e}")
@@ -260,60 +255,62 @@ def consultar_foto(texto: str, usuario: dict, sesion=None) -> str:
 
     bhid = sondaje["bhid"]
 
-    # ── Consulta unificada: perforación + SGS ─────────────────
-    # 7 columnas: url, tramo, fecha, fuente_label, tecnico, bhid, origen
-    rows = ejecutar(
-        """
-        SELECT
-            ap.foto_url,
-            COALESCE(ap.foto_tramo, '—'),
-            ap.fecha::text,
-            CONCAT('Perf. ', ap.turno, ' | ', m.codigo),
-            COALESCE(u.nombre, 'Perforista'),
-            s.bhid,
-            'PERFORACION',
-            ap.id
-        FROM avance_perforacion ap
-        JOIN sondajes      s ON ap.sondaje_id   = s.id
-        JOIN cat_maquinas  m ON ap.maquina_id   = m.id
-        LEFT JOIN usuarios_bot ub ON ap.reportado_por = ub.id
-        WHERE s.bhid = %s AND ap.foto_url IS NOT NULL
+    # ── Fotos de perforación ──────────────────────────────────
+    rows_perf = ejecutar(
+        """SELECT
+               ap.foto_url,
+               COALESCE(ap.foto_tramo, '—'),
+               ap.fecha::text,
+               CONCAT('Perf. ', ap.turno, ' | ', m.codigo),
+               m.codigo,
+               s.bhid,
+               'PERFORACION',
+               ap.id
+           FROM avance_perforacion ap
+           JOIN sondajes     s ON ap.sondaje_id = s.id
+           JOIN cat_maquinas m ON ap.maquina_id = m.id
+           WHERE s.bhid = %s AND ap.foto_url IS NOT NULL
+           ORDER BY ap.id DESC""",
+        (bhid,), fetchall=True
+    ) or []
 
-        UNION ALL
+    # ── Fotos de SGS (logueo, muestreo, etc.) ────────────────
+    rows_sgs = ejecutar(
+        """SELECT
+               e.foto_url,
+               CONCAT(
+                   ROUND(e.desde_m::numeric, 1)::text, '-',
+                   ROUND(e.hasta_m::numeric, 1)::text, 'm'
+               ),
+               e.fecha::text,
+               CONCAT(e.etapa, ' | ', COALESCE(e.tecnico, '—')),
+               COALESCE(e.tecnico, 'SGS'),
+               s.bhid,
+               e.etapa,
+               e.id
+           FROM etapas_sgs e
+           JOIN sondajes   s ON e.sondaje_id = s.id
+           WHERE s.bhid = %s AND e.foto_url IS NOT NULL
+           ORDER BY e.id DESC""",
+        (bhid,), fetchall=True
+    ) or []
 
-        SELECT
-            e.foto_url,
-            CONCAT(
-                ROUND(e.desde_m::numeric, 2)::text, '-',
-                ROUND(e.hasta_m::numeric, 2)::text, 'm'
-            ),
-            e.fecha::text,
-            CONCAT(e.etapa, ' | ', COALESCE(e.tecnico, '—')),
-            COALESCE(ub.nombre, e.tecnico, 'SGS'),
-            s.bhid,
-            e.etapa,
-            e.id
-        FROM etapas_sgs    e
-        JOIN sondajes      s  ON e.sondaje_id    = s.id
-        LEFT JOIN usuarios_bot ub ON e.reportado_por = ub.id
-        WHERE s.bhid = %s AND e.foto_url IS NOT NULL
+    # ── Unir y ordenar por id DESC (más reciente primero) ─────
+    todas = sorted(
+        list(rows_perf) + list(rows_sgs),
+        key=lambda r: r[7],
+        reverse=True
+    )[:10]
 
-        ORDER BY 8 DESC
-        """,
-        (bhid, bhid), fetchall=True
-    )
-
-    if not rows:
+    if not todas:
         return (
             f"📸 No hay fotos registradas para *{bhid}*.\n"
             f"_(Incluye fotos de perforación y SGS)_"
         )
 
-    # Normalizar a lista serializable [url, tramo, fecha, fuente, tecnico, bhid, origen]
-    fotos = [
-        [r[0], r[1], r[2], r[3], r[4], r[5], r[6]]
-        for r in rows[:10]
-    ]
+    # Normalizar a lista serializable
+    # [url, tramo, fecha, fuente_label, tecnico, bhid, origen]
+    fotos = [[r[0], r[1], r[2], r[3], r[4], r[5], r[6]] for r in todas]
 
     # ── Una sola foto → enviar directo ────────────────────────
     if len(fotos) == 1:
