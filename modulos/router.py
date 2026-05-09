@@ -306,33 +306,13 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
         return {"tipo": "interactivo"}
     return resultado
 
-
 def _enriquecer_sgs(resultado, paso_anterior, sesion_id, remitente):
-    """
-    Intercepta el resultado de sgs.procesar() y envía interactivos
-    cuando el paso nuevo lo requiere.
-    Lee el paso NUEVO desde BD (post-proceso), igual que los otros enrichers.
-    """
     from db.conexion import ejecutar as _ej
     row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
                (sesion_id,), fetchone=True)
     paso_nuevo = row[0] if row else paso_anterior
  
     # ── LOGUEO ────────────────────────────────────────────────
- 
-    # Fecha del logueo → texto libre, pasar directo
-    if paso_nuevo == "fecha_logueo":
-        return resultado
- 
-    # Tramo desde → texto libre con número
-    if paso_nuevo in ("tramo_desde_logueo", "tramo_hasta_logueo"):
-        return resultado
- 
-    # Comentario → botones Sí/No
-    if paso_nuevo == "comentario_logueo":
-        return resultado   # texto libre; usuario puede escribir o "no"
- 
-    # Foto logueo → botón "No" + aviso de enviar foto
     if paso_nuevo == "foto_logueo":
         botones(remitente,
                 "📸 ¿Adjuntar foto del tramo logueado?\\n"
@@ -340,20 +320,28 @@ def _enriquecer_sgs(resultado, paso_anterior, sesion_id, remitente):
                 ["No"])
         return {"tipo": "interactivo"}
  
-    # Confirmación logueo → botones Confirmar / Cancelar
     if paso_nuevo == "confirmacion_logueo" and isinstance(resultado, str) \
             and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
  
-    # Fin de logueo → botones Sí/No
     if paso_nuevo == "confirmar_fin_logueo":
         botones_si_no(remitente, resultado)
         return {"tipo": "interactivo"}
  
-    # ── GENÉRICO (Muestreo, RQD, Fotografía, Densidad) ────────
+    # ── MUESTREO ──────────────────────────────────────────────
+    if paso_nuevo == "confirmacion_muestreo" and isinstance(resultado, str) \
+            and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
  
-    # Foto opcional → botón "No"
+    # ── DENSIDAD ──────────────────────────────────────────────
+    if paso_nuevo == "confirmacion_densidad" and isinstance(resultado, str) \
+            and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+ 
+    # ── GENÉRICO (RQD, Fotografía) ────────────────────────────
     if paso_nuevo == "foto_opcional":
         botones(remitente,
                 "📸 ¿Adjuntar foto del tramo?\\n"
@@ -361,17 +349,14 @@ def _enriquecer_sgs(resultado, paso_anterior, sesion_id, remitente):
                 ["No"])
         return {"tipo": "interactivo"}
  
-    # Confirmación genérica → botones Confirmar / Cancelar
-    if paso_nuevo == "confirmacion" and isinstance(resultado, str) \
+    if paso_nuevo == "confirmacion_generica" and isinstance(resultado, str) \
             and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
  
-    # Sondaje → texto libre
-    if paso_nuevo == "sondaje_sgs":
-        return resultado
- 
+    # Texto libre en todos los demás pasos
     return resultado
+
 
 
 
