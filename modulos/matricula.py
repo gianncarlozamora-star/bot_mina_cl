@@ -200,8 +200,8 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
     elif paso == "infill_tajo":
         tajo_num = msg.strip().upper()
         if not tajo_num.startswith("T-"):
-            digitos = "".join(filter(str.isdigit, tajo_num))
-            tajo_num = f"T-{digitos.zfill(3)}" if digitos else tajo_num
+            tajo_num = f"T-{tajo_num.lstrip('0') or tajo_num}"
+        tajo_num = tajo_num.upper()
         nivel    = datos.get("infill_nivel", "")
         cuerpo   = datos.get("infill_cuerpo", "")
         nombre_tajo = f"{nivel}_{cuerpo}_{tajo_num}"
