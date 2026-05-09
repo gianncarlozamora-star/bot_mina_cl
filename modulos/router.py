@@ -287,7 +287,8 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
         if isinstance(resultado, str) and resultado.strip():
             _enviar_texto(remitente, resultado)
         botones_si_no(remitente, "¿Registrar otra máquina?")
-        return {"tipo": "interactivo"}}
+        return {"tipo": "interactivo"}
+        
     if paso_nuevo == "maquina":
         from db.usuarios import obtener_maquinas_activas
         maquinas = obtener_maquinas_activas()
