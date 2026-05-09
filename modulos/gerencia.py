@@ -224,61 +224,113 @@ def consultar_foto(texto: str, usuario: dict, sesion=None) -> str:
     from db.sondajes import buscar_sondaje
     from db.sesiones import crear_sesion, actualizar_sesion, cerrar_sesion
 
-    # Si hay sesión activa de selección de foto
-    if sesion and sesion.get("flujo") == "9" and sesion.get("paso") == "seleccion_foto":
+    # ── Selección de foto desde sesión activa ─────────────────
+    if sesion and sesion.get("flujo") == "9" \
+            and sesion.get("paso") == "seleccion_foto":
         fotos = sesion["datos"].get("fotos", [])
         try:
             idx = int(texto.strip()) - 1
             if idx < 0 or idx >= len(fotos):
                 return f"❓ Responde con un número del 1 al {len(fotos)}."
-            url, tramo, fecha, turno, maq, bhid = fotos[idx]
+            # fotos[i] = [url, tramo, fecha, fuente_label, tecnico, bhid, origen]
+            foto         = fotos[idx]
+            url          = foto[0]
+            tramo        = foto[1]
+            fecha        = foto[2]
+            fuente_label = foto[3]
+            tecnico      = foto[4]
+            bhid         = foto[5]
             cerrar_sesion(usuario["id"])
             return {
                 "tipo":    "imagen",
                 "url":     url,
-                "caption": f"📸 {bhid} | {maq} | Tramo {tramo} | {turno} {fecha}"
+                "caption": (
+                    f"📸 {bhid} | {fuente_label} | "
+                    f"Tramo {tramo} | {fecha} | {tecnico}"
+                )
             }
-        except:
+        except Exception as e:
+            print(f"[GERENCIA] Error selección foto: {e}")
             return "❓ Responde con un número válido."
 
-    # Buscar sondaje
+    # ── Buscar sondaje ────────────────────────────────────────
     sondaje = buscar_sondaje(texto)
     if not sondaje:
         return "❌ No encontré el sondaje. Ejemplo: *foto del 9999*"
 
     bhid = sondaje["bhid"]
-    rows = ejecutar(
-        """SELECT ap.foto_url, ap.foto_tramo, ap.fecha, ap.turno, m.codigo, s.bhid
-           FROM avance_perforacion ap
-           JOIN cat_maquinas m ON ap.maquina_id = m.id
-           JOIN sondajes s ON ap.sondaje_id = s.id
-           WHERE s.bhid = %s AND ap.foto_url IS NOT NULL
-           ORDER BY ap.creado_en DESC""",
-        (bhid,), fetchall=True
-    )
-    if not rows:
-        return f"📸 No hay fotos registradas para *{bhid}*."
 
-    if len(rows) == 1:
-        url, tramo, fecha, turno, maq, bhid2 = rows[0]
+    # ── Consulta unificada: perforación + SGS ─────────────────
+    # 7 columnas: url, tramo, fecha, fuente_label, tecnico, bhid, origen
+    rows = ejecutar(
+        """
+        SELECT
+            ap.foto_url,
+            COALESCE(ap.foto_tramo, '—'),
+            ap.fecha::text,
+            CONCAT('Perf. ', ap.turno, ' | ', m.codigo),
+            COALESCE(u.nombre, 'Perforista'),
+            s.bhid,
+            'PERFORACION',
+            ap.id
+        FROM avance_perforacion ap
+        JOIN sondajes      s ON ap.sondaje_id   = s.id
+        JOIN cat_maquinas  m ON ap.maquina_id   = m.id
+        LEFT JOIN usuarios u ON ap.reportado_por = u.id
+        WHERE s.bhid = %s AND ap.foto_url IS NOT NULL
+
+        UNION ALL
+
+        SELECT
+            e.foto_url,
+            CONCAT(e.desde_m::numeric(8,2), '-', e.hasta_m::numeric(8,2), 'm'),
+            e.fecha::text,
+            CONCAT(e.etapa, ' | ', COALESCE(e.tecnico, '—')),
+            COALESCE(u.nombre, e.tecnico, 'SGS'),
+            s.bhid,
+            e.etapa,
+            e.id
+        FROM etapas_sgs    e
+        JOIN sondajes      s ON e.sondaje_id    = s.id
+        LEFT JOIN usuarios u ON e.reportado_por  = u.id
+        WHERE s.bhid = %s AND e.foto_url IS NOT NULL
+
+        ORDER BY 8 DESC
+        """,
+        (bhid, bhid), fetchall=True
+    )
+
+    if not rows:
+        return (
+            f"📸 No hay fotos registradas para *{bhid}*.\n"
+            f"_(Incluye fotos de perforación y SGS)_"
+        )
+
+    # Normalizar a lista serializable [url, tramo, fecha, fuente, tecnico, bhid, origen]
+    fotos = [
+        [r[0], r[1], r[2], r[3], r[4], r[5], r[6]]
+        for r in rows[:10]
+    ]
+
+    # ── Una sola foto → enviar directo ────────────────────────
+    if len(fotos) == 1:
+        f = fotos[0]
         return {
             "tipo":    "imagen",
-            "url":     url,
-            "caption": f"📸 {bhid} | {maq} | Tramo {tramo} | {turno} {fecha}"
+            "url":     f[0],
+            "caption": f"📸 {f[5]} | {f[3]} | Tramo {f[1]} | {f[2]}"
         }
 
-    # Múltiples fotos — crear sesión para selección
+    # ── Varias fotos → menú interactivo ──────────────────────
     sid = crear_sesion(usuario["id"], "9")
-    actualizar_sesion(sid, "seleccion_foto", {
-        "fotos": [list(r) for r in rows[:5]]
-    })
+    actualizar_sesion(sid, "seleccion_foto", {"fotos": fotos, "bhid": bhid})
 
-    lista = "\n".join([
-        f"  {i+1}. {r[3]} {r[2]} — {r[4]} tramo {r[1]}"
-        for i, r in enumerate(rows[:5])
-    ])
-    return (
-        f"📸 *Fotos de {bhid}* ({len(rows)} registradas)\n\n"
-        f"{lista}\n\n"
-        f"¿Cuál quieres ver? Responde con el número."
-    )
+    # menu_fotos espera: [(url, tramo, fecha, fuente_label, tecnico), ...]
+    fotos_menu = [(f[0], f[1], f[2], f[3], f[4]) for f in fotos]
+
+    return {
+        "tipo":  "lista_fotos",
+        "fotos": fotos_menu,
+        "bhid":  bhid,
+    }
+
