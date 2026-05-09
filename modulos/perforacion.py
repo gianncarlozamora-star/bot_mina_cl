@@ -76,9 +76,22 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             "empresa_id":  row[0] if row else 1,
             "sufijo":      row[1] if row else "",
         })
+        
+        # Verificar si tiene sondaje activo
+        activo = _sondaje_activo_en_maquina(maq_id)
         actualizar_sesion(sid, "sondaje", datos)
+        if not activo:
+            return (
+                f"✅ Máquina: *{maq_cod}*\n\n"
+                f"⚠️ No tiene sondaje *EN CURSO* matriculado.\n"
+                f"¿Cuál es el *código del sondaje*?\n"
+                f"Escribe el código o *provisional* si aún no tiene uno.\n"
+                f"Para matricular uno nuevo escribe *cancelar* y usa la opción Matricular.\n"
+            )
         return (
-            f"✅ Máquina: *{maq_cod}*\n\n"
+            f"✅ Máquina: *{maq_cod}*\n"
+            f"📌 Sondaje activo: *{activo['bhid']}* | {activo['objetivo']}\n"
+            f"   {activo['final_m']:.1f}/{activo['prog_m']:.1f} m\n\n"
             f"¿Cuál es el *código del sondaje*?\n"
             f"Ejemplo: 8422, PECLD08422\n"
         )
