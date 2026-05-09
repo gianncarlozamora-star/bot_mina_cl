@@ -346,7 +346,7 @@ def _inyectar_archivo_en_sesion(remitente: str, url: str):
         datos["dxf_archivo_url"] = url
         import json
         ejecutar(
-            "UPDATE sesiones_bot SET datos = %s WHERE id = %s",
+            "UPDATE sesiones_bot SET datos_parciales = %s WHERE id = %s",
             (json.dumps(datos), sesion["id"])
         )
         print(f"   DXF inyectado en sesión: {url}")
