@@ -266,7 +266,7 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
 
     if paso_nuevo == "sondaje":
         return resultado
-    if paso_nuevo == "turno":
+    if paso_nuevo == "turno" and paso_anterior != "turno":
         botones_turno(remitente)
         return {"tipo": "interactivo"}
     if paso_nuevo == "foto":
