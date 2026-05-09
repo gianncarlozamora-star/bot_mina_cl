@@ -133,6 +133,9 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             return {"tipo": "interactivo"}
         return resultado
 
+    if accion == "consulta_activos":
+        return mod_gerencia.sondajes_en_curso(usuario)
+
     if accion == "resumen":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
             return "⛔ El resumen es solo para gerencia y geólogos."
