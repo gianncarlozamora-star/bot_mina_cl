@@ -143,6 +143,15 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
     if accion == "consulta_activos":
         return mod_gerencia.sondajes_en_curso(usuario)
 
+    if accion in ("consulta_logueo_activos", "sgs_activos"):
+        return mod_sgs.consultar_sondajes_activos_sgs()
+ 
+    if accion in ("consulta_finalizados", "sgs_finalizados"):
+        return mod_sgs.consultar_finalizados_mes()
+ 
+    if accion in ("consulta_pendiente_logueo", "sgs_pendientes"):
+        return mod_sgs.consultar_pendientes_logueo()
+  
     if accion == "resumen":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
             return "⛔ El resumen es solo para gerencia y geólogos."
