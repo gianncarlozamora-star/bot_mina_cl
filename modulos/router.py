@@ -282,8 +282,6 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
         botones_si_no_fin(remitente, "¿Generar reporte consolidado de tu empresa?")
         return {"tipo": "interactivo"}
     if paso_nuevo == "post_consolidado" and paso_anterior != "post_consolidado":
-        if isinstance(resultado, str) and resultado.strip():
-            _enviar_texto(remitente, resultado)
         botones_si_no(remitente, "¿Registrar otra máquina?")
         return {"tipo": "interactivo"}
     if paso_nuevo == "maquina":
