@@ -30,7 +30,8 @@ INTENCIONES VÁLIDAS:
 - consulta_tajo  → pregunta por sondajes de un tajo (T-XXX)
 - consulta_objetivo → pregunta por sondajes de un cuerpo/objetivo (OB1, etc.)
 - consulta_foto  → quiere ver una foto registrada de un sondaje
-- resumen        → pide resumen general, KPIs, totales
+- consulta_activos → pregunta por sondajes activos, en perforación, en curso, qué máquinas están perforando, objetivos en perforación, avance actual por máquina
+- resumen          → pide resumen general, KPIs, totales de toda la campaña
 - descarga       → quiere descargar Excel o reporte
 - menu           → saludo, ayuda, menú, inicio, hola, opciones
 - desconocido    → no encaja en ninguna categoría anterior
