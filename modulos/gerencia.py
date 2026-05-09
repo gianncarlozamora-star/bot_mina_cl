@@ -276,23 +276,26 @@ def consultar_foto(texto: str, usuario: dict, sesion=None) -> str:
         FROM avance_perforacion ap
         JOIN sondajes      s ON ap.sondaje_id   = s.id
         JOIN cat_maquinas  m ON ap.maquina_id   = m.id
-        LEFT JOIN usuarios u ON ap.reportado_por = u.id
+        LEFT JOIN usuarios_bot ub ON ap.reportado_por = ub.id
         WHERE s.bhid = %s AND ap.foto_url IS NOT NULL
 
         UNION ALL
 
         SELECT
             e.foto_url,
-            CONCAT(e.desde_m::numeric(8,2), '-', e.hasta_m::numeric(8,2), 'm'),
+            CONCAT(
+                ROUND(e.desde_m::numeric, 2)::text, '-',
+                ROUND(e.hasta_m::numeric, 2)::text, 'm'
+            ),
             e.fecha::text,
             CONCAT(e.etapa, ' | ', COALESCE(e.tecnico, '—')),
-            COALESCE(u.nombre, e.tecnico, 'SGS'),
+            COALESCE(ub.nombre, e.tecnico, 'SGS'),
             s.bhid,
             e.etapa,
             e.id
         FROM etapas_sgs    e
-        JOIN sondajes      s ON e.sondaje_id    = s.id
-        LEFT JOIN usuarios u ON e.reportado_por  = u.id
+        JOIN sondajes      s  ON e.sondaje_id    = s.id
+        LEFT JOIN usuarios_bot ub ON e.reportado_por = ub.id
         WHERE s.bhid = %s AND e.foto_url IS NOT NULL
 
         ORDER BY 8 DESC
@@ -333,4 +336,3 @@ def consultar_foto(texto: str, usuario: dict, sesion=None) -> str:
         "fotos": fotos_menu,
         "bhid":  bhid,
     }
-
