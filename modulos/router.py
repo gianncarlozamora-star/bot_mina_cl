@@ -85,6 +85,11 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
         return mod_matricula.iniciar_anulacion(usuario, sid)
 
+    if accion == "anular_reporte" or any(w in mensaje.lower()
+            for w in ("anular reporte", "borrar reporte", "eliminar reporte",
+                      "borrar mi reporte", "anular mi reporte")):
+        return _iniciar_anulacion_reporte(usuario)
+
     if accion == "perforacion" or mensaje.lower() == "perforacion":
         if rol not in ROLES_PERFORACION:
             return "⛔ Este flujo es solo para perforistas."
@@ -132,9 +137,6 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             menu_fotos(remitente, resultado["fotos"], resultado["bhid"])
             return {"tipo": "interactivo"}
         return resultado
-
-    if accion == "consulta_activos":
-        return mod_gerencia.sondajes_en_curso(usuario)
 
     if accion == "resumen":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
@@ -277,8 +279,6 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
         botones_si_no_fin(remitente, "¿Generar reporte consolidado de tu empresa?")
         return {"tipo": "interactivo"}
     if paso_nuevo == "post_consolidado" and paso_anterior != "post_consolidado":
-        if isinstance(resultado, str) and resultado.strip():
-            _enviar_texto(remitente, resultado)
         botones_si_no(remitente, "¿Registrar otra máquina?")
         return {"tipo": "interactivo"}
     if paso_nuevo == "maquina":
@@ -370,3 +370,63 @@ def _enviar_texto(remitente, texto):
         enviar_mensaje(remitente, texto)
     except Exception as e:
         print(f"[ROUTER] Error enviando texto: {e}")
+
+
+def _iniciar_anulacion_reporte(usuario: dict) -> str:
+    """Inicia el flujo de anulación del último reporte de perforación."""
+    from db.conexion import ejecutar as _ej
+    from db.sesiones import crear_sesion, actualizar_sesion
+    rol = usuario["rol"]
+
+    if rol == "PERFORISTA":
+        # Solo puede anular su propio último reporte
+        row = _ej(
+            """SELECT ap.id, s.bhid, ap.fecha, ap.turno,
+                      ap.prof_inicio, ap.prof_final
+               FROM avance_perforacion ap
+               JOIN sondajes s ON ap.sondaje_id = s.id
+               JOIN cat_maquinas m ON ap.maquina_id = m.id
+               WHERE ap.reportado_por = %s AND ap.estado = \'ACTIVO\'
+               ORDER BY ap.id DESC LIMIT 1""",
+            (usuario["id"],), fetchone=True
+        )
+    else:
+        # ADMIN y GEOLOGO ven el último reporte global
+        row = _ej(
+            """SELECT ap.id, s.bhid, ap.fecha, ap.turno,
+                      ap.prof_inicio, ap.prof_final
+               FROM avance_perforacion ap
+               JOIN sondajes s ON ap.sondaje_id = s.id
+               WHERE ap.estado = \'ACTIVO\'
+               ORDER BY ap.id DESC LIMIT 1""",
+            fetchone=True
+        )
+
+    if not row:
+        return "⚠️ No encontré ningún reporte activo para anular."
+
+    ap_id, bhid, fecha, turno, prof_ini, prof_fin = row
+    try:
+        from datetime import datetime
+        fecha_fmt = datetime.strptime(str(fecha), "%Y-%m-%d").strftime("%d/%m/%Y")
+    except:
+        fecha_fmt = str(fecha)
+
+    sid = crear_sesion(usuario["id"], FLUJOS["PERFORACION"])
+    actualizar_sesion(sid, "anular_reporte", {
+        "reporte_id":  ap_id,
+        "bhid":        bhid,
+        "turno":       turno,
+        "fecha_fmt":   fecha_fmt,
+        "prof_inicio": float(prof_ini or 0),
+        "prof_final":  float(prof_fin or 0),
+    })
+    avance = float(prof_fin or 0) - float(prof_ini or 0)
+    return (
+        f"🗑️ *ANULAR REPORTE*\n\n"
+        f"🔖 {bhid} | {turno} {fecha_fmt}\n"
+        f"📏 {float(prof_ini or 0):.2f} → {float(prof_fin or 0):.2f} m "
+        f"| +{avance:.2f} m\n\n"
+        f"⚠️ Esta acción no se puede deshacer.\n"
+        f"¿Confirmas? (*sí* / *no*)\n"
+    )
