@@ -193,7 +193,8 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
         return _enriquecer_perforacion(resultado, paso, sid, remitente)
 
     if flujo == FLUJOS["SGS"]:
-        return mod_sgs.procesar(mensaje, usuario, sesion)
+        resultado = mod_sgs.procesar(mensaje, usuario, sesion, foto_url)
+        return _enriquecer_sgs(resultado, paso, sid, remitente)
 
     if flujo == FLUJOS["CERTIMIN"]:
         resultado = mod_certimin.procesar(mensaje, usuario, sesion)
@@ -295,6 +296,74 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
         menu_maquinas(remitente, maquinas)
         return {"tipo": "interactivo"}
     return resultado
+
+
+def _enriquecer_sgs(resultado, paso_anterior, sesion_id, remitente):
+    """
+    Intercepta el resultado de sgs.procesar() y envía interactivos
+    cuando el paso nuevo lo requiere.
+    Lee el paso NUEVO desde BD (post-proceso), igual que los otros enrichers.
+    """
+    from db.conexion import ejecutar as _ej
+    row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
+               (sesion_id,), fetchone=True)
+    paso_nuevo = row[0] if row else paso_anterior
+ 
+    # ── LOGUEO ────────────────────────────────────────────────
+ 
+    # Fecha del logueo → texto libre, pasar directo
+    if paso_nuevo == "fecha_logueo":
+        return resultado
+ 
+    # Tramo desde → texto libre con número
+    if paso_nuevo in ("tramo_desde_logueo", "tramo_hasta_logueo"):
+        return resultado
+ 
+    # Comentario → botones Sí/No
+    if paso_nuevo == "comentario_logueo":
+        return resultado   # texto libre; usuario puede escribir o "no"
+ 
+    # Foto logueo → botón "No" + aviso de enviar foto
+    if paso_nuevo == "foto_logueo":
+        botones(remitente,
+                "📸 ¿Adjuntar foto del tramo logueado?\\n"
+                "Envía la imagen ahora o presiona No.",
+                ["No"])
+        return {"tipo": "interactivo"}
+ 
+    # Confirmación logueo → botones Confirmar / Cancelar
+    if paso_nuevo == "confirmacion_logueo" and isinstance(resultado, str) \
+            and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+ 
+    # Fin de logueo → botones Sí/No
+    if paso_nuevo == "confirmar_fin_logueo":
+        botones_si_no(remitente, resultado)
+        return {"tipo": "interactivo"}
+ 
+    # ── GENÉRICO (Muestreo, RQD, Fotografía, Densidad) ────────
+ 
+    # Foto opcional → botón "No"
+    if paso_nuevo == "foto_opcional":
+        botones(remitente,
+                "📸 ¿Adjuntar foto del tramo?\\n"
+                "Envía la imagen o presiona No.",
+                ["No"])
+        return {"tipo": "interactivo"}
+ 
+    # Confirmación genérica → botones Confirmar / Cancelar
+    if paso_nuevo == "confirmacion" and isinstance(resultado, str) \
+            and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+ 
+    # Sondaje → texto libre
+    if paso_nuevo == "sondaje_sgs":
+        return resultado
+ 
+    return resultado
+
 
 
 def _enriquecer_certimin(resultado, paso, remitente):
