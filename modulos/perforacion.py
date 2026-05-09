@@ -84,8 +84,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return (
                 f"✅ Máquina: *{maq_cod}*\n\n"
                 f"⚠️ No tiene sondaje *EN CURSO* matriculado.\n"
-                f"¿Cuál es el *código del sondaje*?\n"
-                f"Escribe el código o *provisional* si aún no tiene uno.\n"
                 f"Para matricular uno nuevo escribe *cancelar* y usa la opción Matricular.\n"
             )
         return (
