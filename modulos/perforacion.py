@@ -545,7 +545,8 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             fecha      = datos.get("fecha")
             turno      = datos.get("turno")
             rows = ejecutar(
-                """SELECT ap.prof_inicio, ap.prof_final, ap.metros_avance,
+                """SELECT ap.prof_inicio, ap.prof_final,
+                          (ap.prof_final - ap.prof_inicio) AS avance,
                           ap.observaciones, m.codigo, s.bhid,
                           s.nivel_prog, s.labor, s.diametro, s.profundidad_prog
                    FROM avance_perforacion ap
