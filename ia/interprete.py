@@ -32,6 +32,9 @@ INTENCIONES VÁLIDAS:
 - consulta_foto  → quiere ver una foto registrada de un sondaje
 - anular_reporte   → quiere anular, borrar o eliminar su último reporte de perforación
 - consulta_activos → pregunta por sondajes activos, en perforación, en curso, qué máquinas están perforando, objetivos en perforación, avance actual por máquina
+- consulta_logueo_activos  → pregunta qué sondajes tienen logueo pendiente, activos sin loguear, cuánto falta loguear
+- consulta_finalizados     → pregunta qué sondajes finalizaron este mes, cuáles terminaron, sondajes concluidos
+- consulta_pendiente_logueo → pregunta cuáles sondajes (activos o finalizados) les falta completar el logueo, atraso en logueo
 - resumen        → pide resumen general, KPIs, totales
 - descarga       → quiere descargar Excel o reporte
 - menu           → saludo, ayuda, menú, inicio, hola, opciones
