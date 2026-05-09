@@ -193,6 +193,23 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return "❓ Responde *1* (Día) o *2* (Noche)."
         datos["turno"] = turno
         datos["fecha"] = _hora().strftime("%Y-%m-%d")
+
+        # Cargar último avance registrado para pre-llenar prof_inicio
+        ultimo = _ultimo_avance_sondaje(datos.get("bhid"))
+        if ultimo:
+            datos["ultimo_avance_id"]        = ultimo["id"]
+            datos["ultimo_prof_inicio"]      = ultimo["prof_inicio"]
+            datos["ultimo_prof_final"]       = ultimo["prof_final"]
+            datos["prof_inicio_sugerido"]    = ultimo["prof_final"]
+            actualizar_sesion(sid, "prof_inicio", datos)
+            return (
+                f"✅ Turno: *{turno}* | 📅 {_hora().strftime('%d/%m/%Y')}\n\n"
+                f"📏 Último metraje registrado: *{ultimo['prof_final']:.2f} m*\n"
+                f"¿Confirmas que inicias desde ahí?\n"
+                f"  *sí* — Usar {ultimo['prof_final']:.2f} m\n"
+                f"  *no* — Ingresar valor correcto\n"
+            )
+
         actualizar_sesion(sid, "prof_inicio", datos)
         return (
             f"✅ Turno: *{turno}* | 📅 {_hora().strftime('%d/%m/%Y')}\n\n"
@@ -201,6 +218,61 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
 
     # ── Profundidad inicio ────────────────────────────────────
     elif paso == "prof_inicio":
+        sugerido        = datos.get("prof_inicio_sugerido")
+        ultimo_ini      = datos.get("ultimo_prof_inicio", 0)
+        ultimo_avance_id = datos.get("ultimo_avance_id")
+
+        # Tiene metraje previo → espera sí/no o valor corregido
+        if sugerido is not None:
+            if msg.lower() in ("sí", "si", "yes", "ok", "s"):
+                # Confirma el valor sugerido
+                datos["prof_inicio"] = float(sugerido)
+                datos.pop("prof_inicio_sugerido", None)
+                actualizar_sesion(sid, "prof_final", datos)
+                return f"✅ Inicio confirmado: *{float(sugerido):.2f} m*\n\n¿*Profundidad final* del turno?\n"
+
+            if msg.lower() in ("no", "n"):
+                # Pide el valor correcto
+                actualizar_sesion(sid, "prof_inicio", datos)
+                return (
+                    f"📏 Ingresa el metraje correcto de inicio:\n"
+                    f"   (Debe ser mayor a {float(ultimo_ini):.2f} m, "
+                    f"que fue el inicio del turno anterior)\n"
+                )
+
+            # Intentar parsear como número (valor corregido)
+            try:
+                prof_ini = float(msg.replace(",", "."))
+                if prof_ini < float(ultimo_ini):
+                    return (
+                        f"❌ El valor no puede ser menor a *{float(ultimo_ini):.2f} m*\n"
+                        f"   (inicio del turno anterior — los metrajes se cruzarían)\n"
+                        f"Ingresa un valor mayor a {float(ultimo_ini):.2f} m:\n"
+                    )
+                # Valor válido — actualizar prof_final del turno anterior
+                if ultimo_avance_id and prof_ini != float(sugerido):
+                    ejecutar(
+                        "UPDATE avance_perforacion SET prof_final = %s WHERE id = %s",
+                        (prof_ini, ultimo_avance_id)
+                    )
+                    ejecutar(
+                        "UPDATE sondajes SET profundidad_final = %s WHERE bhid = %s",
+                        (prof_ini, datos.get("bhid"))
+                    )
+                    aviso_correccion = f"⚠️ Metraje anterior corregido: {float(sugerido):.2f} → *{prof_ini:.2f} m*\n\n"
+                else:
+                    aviso_correccion = ""
+                datos["prof_inicio"] = prof_ini
+                datos.pop("prof_inicio_sugerido", None)
+                actualizar_sesion(sid, "prof_final", datos)
+                return f"{aviso_correccion}✅ Inicio: *{prof_ini:.2f} m*\n\n¿*Profundidad final* del turno?\n"
+            except ValueError:
+                return (
+                    f"❓ Responde *sí* para confirmar {float(sugerido):.2f} m, "
+                    f"*no* para ingresar otro valor, o escribe el número directamente.\n"
+                )
+
+        # Sin metraje previo → flujo normal
         try:
             prof_ini = float(msg.replace(",", "."))
             if prof_ini < 0:
@@ -229,9 +301,28 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         if prog_m > 0 and prof_fin >= prog_m * 0.98:
             datos["posible_fin"] = True
 
-        actualizar_sesion(sid, "cambio_linea", datos)
+        actualizar_sesion(sid, "fin_sondaje_manual", datos)
         return (
             f"✅ Final: *{prof_fin:.2f} m* | Avance: *{avance:.2f} m*\n\n"
+            f"¿El sondaje *{datos.get('bhid','—')}* ha *finalizado*?\n"
+            f"  *sí* — Marcar FINALIZADO\n"
+            f"  *no* — Continúa perforando\n"
+        )
+
+    # ── Fin sondaje manual (siempre se pregunta) ──────────────
+    elif paso == "fin_sondaje_manual":
+        if msg.lower() in ("sí", "si", "yes", "ok"):
+            datos["fin_manual"] = True
+        elif msg.lower() in ("no", "n"):
+            datos["fin_manual"] = False
+        else:
+            return (
+                f"¿El sondaje *{datos.get('bhid','—')}* ha finalizado?\n"
+                f"  *sí* — Marcar FINALIZADO\n"
+                f"  *no* — Continúa perforando\n"
+            )
+        actualizar_sesion(sid, "cambio_linea", datos)
+        return (
             f"¿Hubo *cambio de línea* en este turno?\n"
             f"  *sí* — Registrar cambio\n"
             f"  *no* — Continuar\n"
@@ -250,21 +341,46 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         if msg.lower() in ("sí", "si", "yes", "ok"):
             datos["hubo_cambio_linea"] = True
             datos["linea_anterior"]    = datos.get("diametro", "NQ")
+            diam_actual = datos.get("diametro", "NQ")
+
+            # Secuencia de reducción: PQ→HQ→NQ→BQ
+            opciones_reduccion = {
+                "PQ": [("1","HQ"), ("2","NQ"), ("3","BQ")],
+                "HQ": [("1","NQ"), ("2","BQ")],
+                "NQ": [("1","BQ")],
+                "BQ": [],
+            }
+            opciones = opciones_reduccion.get(diam_actual, [])
+
+            if not opciones:
+                datos["hubo_cambio_linea"] = False
+                actualizar_sesion(sid, "observaciones", datos)
+                return (
+                    f"⛔ *BQ* es el diámetro mínimo, no hay reducción posible.\n\n"
+                    f"¿*Observaciones* del turno?\nEscribe las novedades o *ninguna*.\n"
+                )
+
+            menu_lineas = "\n".join([f"  *{n}* — {d}" for n, d in opciones])
+            datos["lineas_opciones"] = opciones
             actualizar_sesion(sid, "linea_nueva", datos)
             return (
-                f"📏 Línea actual: *{datos.get('diametro','NQ')}*\n\n"
-                f"¿A qué línea cambiaste?\n"
-                f"  *1* — BQ\n  *2* — NQ\n  *3* — HQ\n  *4* — PQ\n"
+                f"📏 Línea actual: *{diam_actual}*\n\n"
+                f"¿A qué línea cambiaste?\n{menu_lineas}\n"
             )
         return "Responde *sí* o *no*."
 
     # ── Línea nueva ───────────────────────────────────────────
     elif paso == "linea_nueva":
-        diams = {"1":"BQ","2":"NQ","3":"HQ","4":"PQ",
-                 "bq":"BQ","nq":"NQ","hq":"HQ","pq":"PQ"}
-        linea_nueva = diams.get(msg.lower())
+        opciones = datos.get("lineas_opciones", [])
+        # Construir mapa dinámico con las opciones permitidas
+        mapa = {n: d for n, d in opciones}
+        # También aceptar el nombre directo
+        for _, d in opciones:
+            mapa[d.lower()] = d
+        linea_nueva = mapa.get(msg.lower()) or mapa.get(msg.upper())
         if not linea_nueva:
-            return "❓ Responde 1 (BQ), 2 (NQ), 3 (HQ) o 4 (PQ)."
+            menu_lineas = "\n".join([f"  *{n}* — {d}" for n, d in opciones])
+            return f"❓ Opción no válida. Elige:\n{menu_lineas}\n"
         datos["linea_nueva"] = linea_nueva
         actualizar_sesion(sid, "metro_cambio", datos)
         return f"✅ Nueva línea: *{linea_nueva}*\n\n¿En qué *metro exacto* fue el cambio?\nEjemplo: 125.50\n"
@@ -374,16 +490,14 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                 f"─────────────────────\n\n"
             )
 
-            # Sondaje llegó a profundidad programada
-            if datos.get("posible_fin"):
-                actualizar_sesion(sid, "confirmar_fin_sondaje", datos)
-                return (
-                    reporte_base +
-                    f"🎯 La profundidad alcanzó el programa.\n"
-                    f"¿El sondaje *{datos['bhid']}* ha *finalizado*?\n"
-                    f"  *sí* — Marcar FINALIZADO\n"
-                    f"  *no* — Continúa perforando\n"
+            # Sondaje marcado como finalizado por el perforista
+            if datos.get("fin_manual"):
+                ejecutar(
+                    "UPDATE sondajes SET estado_perforacion='FINALIZADO', fecha_fin_perf=%s WHERE bhid=%s",
+                    (datos.get("fecha"), datos["bhid"])
                 )
+                datos["es_fin"] = True
+                reporte_base += f"🎉 *{datos['bhid']}* marcado como *FINALIZADO*\n\n"
 
             actualizar_sesion(sid, "reporte_empresa", datos)
             return (
@@ -474,16 +588,20 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             emp_row = ejecutar("SELECT nombre FROM cat_empresas WHERE id=%s",
                                (empresa_id,), fetchone=True)
             empresa_nombre = emp_row[0] if emp_row else "Empresa"
-            consolidado = generar_reporte_empresa(
+            consolidado    = generar_reporte_empresa(
                 reportes, empresa_nombre, fecha,
                 maquinas_sin_reporte=sin_reporte
             )
-            cerrar_sesion(usuario["id"])
+
+            # Después del consolidado → terminar o registrar otra máquina
+            actualizar_sesion(sid, "post_consolidado", datos)
             return (
-                f"🏢 *{empresa_nombre.upper()} | TURNO {turno}*\n"
-                f"_(Copia y reenvía a tu grupo)_\n\n"
-                f"{consolidado}\n\n"
-                f"✅ Sesión cerrada. Escribe *hola* cuando necesites."
+                f"─────────────────────\n"
+                f"🏢 *{empresa_nombre.upper()} — TURNO {turno}*\n"
+                f"_(Copia y reenvía)_\n\n{consolidado}\n"
+                f"─────────────────────\n\n"
+                f"¿Registrar otra máquina?\n"
+                f"  *sí* — Continuar\n  *no* — Terminar\n"
             )
         except Exception as e:
             print(f"[PERFORACION] Error consolidado: {e}")
@@ -604,3 +722,24 @@ def _obtener_maquina_sondaje(bhid: str) -> str | None:
         (bhid,), fetchone=True
     )
     return row[0] if row else None
+
+def _ultimo_avance_sondaje(bhid: str) -> dict | None:
+    """Retorna el último avance registrado de un sondaje con id, prof_inicio y prof_final."""
+    if not bhid:
+        return None
+    row = ejecutar(
+        """SELECT ap.id, ap.prof_inicio, ap.prof_final
+           FROM avance_perforacion ap
+           JOIN sondajes s ON ap.sondaje_id = s.id
+           WHERE s.bhid = %s AND ap.estado = 'ACTIVO'
+           ORDER BY ap.fecha DESC, ap.id DESC
+           LIMIT 1""",
+        (bhid,), fetchone=True
+    )
+    if not row:
+        return None
+    return {
+        "id":          row[0],
+        "prof_inicio": float(row[1] or 0),
+        "prof_final":  float(row[2] or 0),
+    }
