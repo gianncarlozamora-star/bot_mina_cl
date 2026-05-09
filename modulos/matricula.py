@@ -161,11 +161,11 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         datos["subcategoria_nombre"]  = nombres[idx]
 
         if opciones[idx] == "INFILL":
-            actualizar_sesion(sid, "objetivo_infill", datos)
+            actualizar_sesion(sid, "infill_nivel", datos)
             return (
                 f"✅ Tipo: *INFILL*\n\n"
-                f"¿Cuál es el *tajo objetivo*?\n"
-                f"Ejemplo: T-021, Tj.001, T-695\n"
+                f"¿*Nivel base* del tajo (metros)?\n"
+                f"Ejemplo: 1710, 1850, 1940\n"
             )
         else:
             actualizar_sesion(sid, "objetivo_recategorizacion", datos)
@@ -175,13 +175,149 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                 f"Ejemplo: OB1, EXT-OB1, OB1_01, OB6\n"
             )
 
+    elif paso == "infill_nivel":
+        try:
+            nivel_tajo = int(msg.strip())
+            datos["infill_nivel"] = nivel_tajo
+        except ValueError:
+            return "❓ Número entero. Ejemplo: 1710"
+        actualizar_sesion(sid, "infill_cuerpo", datos)
+        return (
+            f"✅ Nivel base: *{nivel_tajo}*\n\n"
+            f"¿*Cuerpo / objetivo*?\n"
+            f"Ejemplo: OB5B, OB1, EXT-OB1\n"
+        )
+
+    elif paso == "infill_cuerpo":
+        datos["infill_cuerpo"] = msg.strip().upper()
+        actualizar_sesion(sid, "infill_tajo", datos)
+        return (
+            f"✅ Cuerpo: *{datos['infill_cuerpo']}*\n\n"
+            f"¿*Número de tajo*?\n"
+            f"Ejemplo: T-002, T-021\n"
+        )
+
+    elif paso == "infill_tajo":
+        tajo_num = msg.strip().upper()
+        if not tajo_num.startswith("T-"):
+            digitos = "".join(filter(str.isdigit, tajo_num))
+            tajo_num = f"T-{digitos.zfill(3)}" if digitos else tajo_num
+        nivel    = datos.get("infill_nivel", "")
+        cuerpo   = datos.get("infill_cuerpo", "")
+        nombre_tajo = f"{nivel}_{cuerpo}_{tajo_num}"
+        datos["tajo_objetivo"] = nombre_tajo
+        datos["tajo_num"]      = tajo_num
+        datos["infill_nombre"] = nombre_tajo
+
+        # Buscar o crear tajo en BD
+        tajo_row = ejecutar(
+            "SELECT id, dxf_url, dxf_fecha FROM tajos "
+            "WHERE nivel = %s AND cuerpo = %s AND tajo = %s LIMIT 1",
+            (nivel, cuerpo, tajo_num), fetchone=True
+        )
+        if tajo_row:
+            datos["tajo_id"]  = tajo_row[0]
+            datos["dxf_url"]  = tajo_row[1]
+            datos["dxf_fecha"] = str(tajo_row[2]) if tajo_row[2] else None
+        else:
+            # Crear registro de tajo
+            nuevo = ejecutar(
+                "INSERT INTO tajos (nivel, cuerpo, tajo) "
+                "VALUES (%s, %s, %s) RETURNING id",
+                (nivel, cuerpo, tajo_num), fetchone=True
+            )
+            datos["tajo_id"] = nuevo[0] if nuevo else None
+            datos["dxf_url"] = None
+
+        actualizar_sesion(sid, "infill_dxf", datos)
+
+        if datos.get("dxf_url"):
+            return (
+                f"✅ Tajo: *{nombre_tajo}*\n"
+                f"📎 Ya tiene DXF subido ({datos['dxf_fecha']})\n\n"
+                f"¿Reemplazar el DXF o mantener el actual?\n"
+                f"  *mantener* — Usar el existente\n"
+                f"  *reemplazar* — Subir nuevo archivo\n"
+            )
+        return (
+            f"✅ Tajo: *{nombre_tajo}*\n\n"
+            f"📎 ¿Adjuntas el sólido DXF?\n"
+            f"  Adjunta el archivo ahora\n"
+            f"  *no tengo* — Continuar sin DXF\n"
+            f"  *regularizar* — Marcar pendiente\n"
+        )
+
     elif paso == "objetivo_infill":
+        # Fallback legacy
         datos["tajo_objetivo"] = msg.upper()
         actualizar_sesion(sid, "profundidad", datos)
         return (
             f"✅ Tajo objetivo: *{datos['tajo_objetivo']}*\n\n"
             f"¿*Profundidad programada* (metros)?\n"
             f"Ejemplo: 150, 295, 320.50\n"
+        )
+
+    elif paso == "infill_dxf":
+        # Puede venir como texto o como archivo (foto_url en datos)
+        dxf_url = datos.get("dxf_archivo_url")  # seteado por main.py si adjunta
+
+        if dxf_url:
+            # Archivo recibido — guardar en tajos
+            tajo_id = datos.get("tajo_id")
+            if tajo_id:
+                ejecutar(
+                    "UPDATE tajos SET dxf_url = %s, dxf_fecha = %s WHERE id = %s",
+                    (dxf_url, _hora().strftime("%Y-%m-%d"), tajo_id)
+                )
+            datos["dxf_url"]      = dxf_url
+            datos["estado_dxf"]   = "SUBIDO"
+            actualizar_sesion(sid, "profundidad", datos)
+            return (
+                f"✅ DXF registrado para *{datos.get('infill_nombre','—')}*\n\n"
+                f"¿*Profundidad programada* (metros)?\n"
+                f"Ejemplo: 150, 295, 320.50\n"
+            )
+
+        if msg.lower() == "mantener":
+            datos["estado_dxf"] = "SUBIDO"
+            actualizar_sesion(sid, "profundidad", datos)
+            return (
+                f"✅ DXF existente mantenido.\n\n"
+                f"¿*Profundidad programada* (metros)?\n"
+            )
+
+        if msg.lower() in ("reemplazar",):
+            datos["esperando_dxf"] = True
+            actualizar_sesion(sid, "infill_dxf", datos)
+            return "📎 Adjunta el nuevo archivo DXF:\n"
+
+        if msg.lower() in ("no tengo", "no", "sin dxf"):
+            datos["estado_dxf"] = "SIN_DXF"
+            actualizar_sesion(sid, "profundidad", datos)
+            return (
+                f"⚠️ Sin DXF — puedes regularizarlo después.\n\n"
+                f"¿*Profundidad programada* (metros)?\n"
+            )
+
+        if msg.lower() in ("regularizar", "pendiente"):
+            tajo_id = datos.get("tajo_id")
+            if tajo_id:
+                ejecutar(
+                    "UPDATE tajos SET estado_infill = 'DXF_PENDIENTE' WHERE id = %s",
+                    (tajo_id,)
+                )
+            datos["estado_dxf"] = "PENDIENTE"
+            actualizar_sesion(sid, "profundidad", datos)
+            return (
+                f"📌 DXF marcado como *pendiente* para regularizar.\n\n"
+                f"¿*Profundidad programada* (metros)?\n"
+            )
+
+        return (
+            f"📎 ¿Adjuntas el sólido DXF?\n"
+            f"  Adjunta el archivo\n"
+            f"  *no tengo* — Continuar sin DXF\n"
+            f"  *regularizar* — Marcar pendiente\n"
         )
 
     elif paso == "objetivo_recategorizacion":
