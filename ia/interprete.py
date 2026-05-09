@@ -31,7 +31,8 @@ INTENCIONES VÁLIDAS:
 - consulta_objetivo → pregunta por sondajes de un cuerpo/objetivo (OB1, etc.)
 - consulta_foto  → quiere ver una foto registrada de un sondaje
 - anular_reporte → quiere anular, borrar o eliminar su último reporte de perforación
-- resumen        → pide resumen general, KPIs, totales
+- consulta_activos → pregunta por sondajes activos, en perforación, en curso, qué máquinas están perforando, objetivos en perforación, avance actual por máquina
+- resumen          → pide resumen general, KPIs, totales de toda la campaña
 - descarga       → quiere descargar Excel o reporte
 - menu           → saludo, ayuda, menú, inicio, hola, opciones
 - desconocido    → no encaja en ninguna categoría anterior
