@@ -78,17 +78,19 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         menu_tipo_sondaje(remitente)
         return {"tipo": "interactivo"}
 
-    if accion == "anular" or any(w in mensaje.lower()
-            for w in ("anular", "eliminar sondaje", "borrar sondaje")):
+    if accion == "anular_reporte" or any(w in mensaje.lower()
+            for w in ("anular reporte", "borrar reporte", "eliminar reporte",
+                      "borrar mi reporte", "anular mi reporte")):
+        return _iniciar_anulacion_reporte(usuario)
+    
+    if (accion == "anular" and accion != "anular_reporte") or any(w in mensaje.lower()
+            for w in ("eliminar sondaje", "borrar sondaje")):
         if rol not in ROLES_MATRICULA:
             return "⛔ Solo geólogos y admin pueden anular sondajes."
         sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
         return mod_matricula.iniciar_anulacion(usuario, sid)
 
-    if accion == "anular_reporte" or any(w in mensaje.lower()
-            for w in ("anular reporte", "borrar reporte", "eliminar reporte",
-                      "borrar mi reporte", "anular mi reporte")):
-        return _iniciar_anulacion_reporte(usuario)
+    
 
     if accion == "perforacion" or mensaje.lower() == "perforacion":
         if rol not in ROLES_PERFORACION:
