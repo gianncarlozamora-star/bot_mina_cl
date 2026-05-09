@@ -350,8 +350,8 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
     elif paso == "prof_final":
         try:
             prof_fin = float(msg.replace(",", "."))
-            if prof_fin <= datos.get("prof_inicio", 0):
-                return f"❓ Debe ser mayor a {datos['prof_inicio']:.2f} m."
+            if prof_fin < datos.get("prof_inicio", 0):
+                return f"❓ Debe ser mayor o igual a {datos['prof_inicio']:.2f} m."
             datos["prof_final"] = prof_fin
         except ValueError:
             return "❓ Número válido."
