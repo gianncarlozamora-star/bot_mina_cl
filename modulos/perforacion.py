@@ -187,7 +187,9 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
     # ── Turno ─────────────────────────────────────────────────
     elif paso == "turno":
         turnos = {"1": "DIA", "2": "NOCHE", "dia": "DIA", "día": "DIA",
-                  "noche": "NOCHE", "d": "DIA", "n": "NOCHE"}
+          "noche": "NOCHE", "d": "DIA", "n": "NOCHE",
+          "☀️ día": "DIA", "☀️ dia": "DIA", "🌙 noche": "NOCHE",
+          "día": "DIA", "dia": "DIA"}
         turno = turnos.get(msg.lower())
         if not turno:
             return "❓ Responde *1* (Día) o *2* (Noche)."
