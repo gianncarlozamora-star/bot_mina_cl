@@ -293,6 +293,10 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
     if item_id in desc_map:
         return desc_map[item_id]
 
+    if item_id.startswith("tajo_"):
+        nombre_tajo = item_id.replace("tajo_", "").replace("_", " ")
+        return f"tajo__{nombre_tajo}"
+
     # Fallback: usar el título directamente
     return titulo
 
