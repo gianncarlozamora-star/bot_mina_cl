@@ -107,8 +107,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "opciones_lista": [
                 {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Registrar nuevo sondaje"},
                 {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
-                {"id": "perforacion",  "titulo": "💎 Perforación DDH",      "desc": "Registrar avance"},
-                {"id": "gestion_perf", "titulo": "📊 Gestión Perforación",  "desc": "Consolidado y activos"}    
+                {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
                 {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo, RQD..."},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
@@ -119,7 +118,6 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "opciones_lista": [
                 {"id": "perforacion", "titulo": "⛏️ Reportar avance",   "desc": "Reporte de turno"},
                 {"id": "consulta",    "titulo": "🔍 Consultar sondaje", "desc": "Estado de un DDH"},
-                {"id": "gestion_perf", "titulo": "📊 Ver consolidado",      "desc": "Estado del turno"},
             ]
         },
         "SGS": {
@@ -267,6 +265,24 @@ def menu_etapas_sgs(telefono: str):
             }
         ],
         boton_texto="Seleccionar"
+    )
+
+
+
+def menu_gestion_perforacion(telefono: str):
+    """Submenu de gestion de perforacion diamantina."""
+    return lista(
+        telefono,
+        "Gestion Perforacion Diamantina",
+        [{"items": [
+            {"id": "gp_consolidado", "titulo": "Consolidado turno",
+             "desc": "Reporte por empresa"},
+            {"id": "gp_activos",    "titulo": "Sondajes activos",
+             "desc": "En perforacion ahora"},
+            {"id": "gp_metricas",   "titulo": "Metricas del turno",
+             "desc": "Metros y comparativo"},
+        ]}],
+        boton_texto="Ver opciones"
     )
 
 
