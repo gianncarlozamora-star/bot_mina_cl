@@ -145,7 +145,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             actualizar_sesion(sid, "fecha_trabajo", datos,
                               sondaje_context=sondaje["bhid"])
             return _ficha_generica(sondaje, prof_final, prog_m, etapa) + aviso
-            )
 
     # ══════════════════════════════════════════════════════════
     # FLUJO LOGUEO
@@ -690,9 +689,9 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         datos["fecha"] = fecha
         actualizar_sesion(sid, "tramo_desde", datos)
         return (
-            f"✅ Fecha: *{fecha}*\\n\\n"
-            f"¿*Desde* qué metro trabajaste?\\n"
-            f"Ejemplo: 0, 50.5\\n"
+            f"✅ Fecha: *{fecha}*\n\n"
+            f"¿*Desde* qué metro trabajaste?\n"
+            f"Ejemplo: 0, 50.5\n"
         )
  
     elif paso == "tramo_desde":
@@ -704,9 +703,9 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return "❓ Número válido. Ejemplo: 50.5"
         actualizar_sesion(sid, "tramo_hasta", datos)
         return (
-            f"✅ Desde: *{desde:.2f} m*\\n\\n"
-            f"¿*Hasta* qué metro?\\n"
-            f"Perforado hasta: {datos.get('prof_final', 0):.2f} m\\n"
+            f"✅ Desde: *{desde:.2f} m*\n\n"
+            f"¿*Hasta* qué metro?\n"
+            f"Perforado hasta: {datos.get('prof_final', 0):.2f} m\n"
         )
  
     elif paso == "tramo_hasta":
@@ -738,16 +737,16 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return "¿Confirmas? Responde *sí* o *no*."
         try:
             ejecutar(
-                \"\"\"INSERT INTO etapas_sgs (
+                """INSERT INTO etapas_sgs (
                        sondaje_id, etapa, fecha, desde_m, hasta_m,
                        metros, tecnico, reportado_por, fuente
-                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'BOT')\"\"\",
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'BOT')""",
                 (
                     datos.get("sondaje_id"), datos.get("etapa"),
                     datos.get("fecha"),
                     datos.get("desde_m"), datos.get("hasta_m"),
                     datos.get("metros"),
-                    usuario["nombre"],   # técnico = usuario WhatsApp
+                    usuario["nombre"],
                     usuario["id"],
                 )
             )
@@ -755,12 +754,12 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             actualizar_estado_etapa(datos["bhid"], etapa_key, "EN_PROCESO")
             cerrar_sesion(usuario["id"])
             return (
-                f"✅ *{datos['etapa']} registrado*\\n"
-                f"🔬 {datos['etapa']} | *{datos['bhid']}*\\n"
+                f"✅ *{datos['etapa']} registrado*\n"
+                f"🔬 {datos['etapa']} | *{datos['bhid']}*\n"
                 f"📏 {datos['desde_m']:.2f} → {datos['hasta_m']:.2f} m "
-                f"({datos.get('metros', 0):.2f} m)\\n"
-                f"📅 {fecha_hora_str()}\\n"
-                f"👤 {usuario['nombre']}\\n"
+                f"({datos.get('metros', 0):.2f} m)\n"
+                f"📅 {fecha_hora_str()}\n"
+                f"👤 {usuario['nombre']}\n"
             )
         except Exception as e:
             print(f"[SGS-{datos.get('etapa','')}] Error: {e}")
@@ -1150,52 +1149,54 @@ def _resumen_logueo(datos: dict) -> str:
 
 
 def _aviso_etapa_previa(bhid: str, etapa: str) -> str:
-    \"\"\"Avisa si ya hay registros de esta etapa en el sondaje.\"\"\"
+    """Avisa si ya hay registros de esta etapa en el sondaje."""
     rows = ejecutar(
-        \"\"\"SELECT e.fecha, e.desde_m, e.hasta_m, e.tecnico
+        """SELECT e.fecha, e.desde_m, e.hasta_m, e.tecnico
            FROM etapas_sgs e
            JOIN sondajes s ON e.sondaje_id = s.id
            WHERE s.bhid = %s AND e.etapa = %s
              AND COALESCE(e.estado, 'ACTIVO') != 'ANULADO'
-           ORDER BY e.id DESC LIMIT 3\"\"\",
+           ORDER BY e.id DESC LIMIT 3""",
         (bhid, etapa), fetchall=True
     )
     if not rows:
-        return f"\\n¿*Fecha* del trabajo? (DD/MM o *hoy*)\\n"
- 
+        return "\n¿*Fecha* del trabajo? (DD/MM o *hoy*)\n"
+
     etapa_label = {
         "RQD":        "📐 RQD",
         "FOTOGRAFIA": "📸 Fotografía",
     }.get(etapa, etapa)
- 
-    lineas = [f"\\n⚠️ *{etapa_label} previo registrado:*"]
+
+    lineas = [f"\n⚠️ *{etapa_label} previo registrado:*"]
     for r in rows:
         fecha, desde, hasta, tec = r
-        try: fstr = fecha.strftime("%d/%m/%y") if fecha else "—"
-        except: fstr = str(fecha)[:8]
+        try:
+            fstr = fecha.strftime("%d/%m/%y") if fecha else "—"
+        except:
+            fstr = str(fecha)[:8]
         lineas.append(
             f"  📋 {fstr} | "
             f"{float(desde or 0):.1f}→{float(hasta or 0):.1f}m | "
             f"{tec or '—'}"
         )
     lineas.append(
-        "\\nSi es un *nuevo tramo*, continúa normalmente.\\n"
-        "Si hay *error*, escribe *cancelar*.\\n\\n"
-        "¿*Fecha* del trabajo? (DD/MM o *hoy*)\\n"
-   )
-    return "\\n".join(lineas)
-      
- 
+        "\nSi es un *nuevo tramo*, continúa normalmente.\n"
+        "Si hay *error*, escribe *cancelar*.\n\n"
+        "¿*Fecha* del trabajo? (DD/MM o *hoy*)\n"
+    )
+    return "\n".join(lineas)
+
+
 def _verificar_solapamiento(bhid: str, etapa: str,
                              desde: float, hasta: float) -> str:
-    \"\"\"Detecta si el tramo se superpone con registros existentes.\"\"\"
+    """Detecta si el tramo se superpone con registros existentes."""
     rows = ejecutar(
-        \"\"\"SELECT e.fecha, e.desde_m, e.hasta_m
+        """SELECT e.fecha, e.desde_m, e.hasta_m
            FROM etapas_sgs e
            JOIN sondajes s ON e.sondaje_id = s.id
            WHERE s.bhid = %s AND e.etapa = %s
              AND COALESCE(e.estado, 'ACTIVO') != 'ANULADO'
-             AND e.desde_m < %s AND e.hasta_m > %s\"\"\",
+             AND e.desde_m < %s AND e.hasta_m > %s""",
         (bhid, etapa, hasta, desde), fetchall=True
     )
     if not rows:
@@ -1203,43 +1204,43 @@ def _verificar_solapamiento(bhid: str, etapa: str,
     solapados = []
     for r in rows:
         fecha, d, h = r
-        try: fstr = fecha.strftime("%d/%m") if fecha else "—"
-        except: fstr = "—"
+        try:
+            fstr = fecha.strftime("%d/%m") if fecha else "—"
+        except:
+            fstr = "—"
         solapados.append(f"{fstr}: {float(d):.1f}→{float(h):.1f}m")
- 
+
     return (
-        f"\\n⚠️ *Solapamiento detectado* con registros existentes:\\n"
-        + "\\n".join(f"  • {s}" for s in solapados)
-        + "\\n\\nConfirma igual si es una corrección, o escribe *no* para ajustar.\\n"
+        f"\n⚠️ *Solapamiento detectado* con registros existentes:\n"
+        + "\n".join(f"  • {s}" for s in solapados)
+        + "\n\nConfirma igual si es corrección, o escribe *no* para ajustar.\n"
     )
- 
- 
+
+
 def _ficha_generica(sondaje: dict, prof_final: float,
                     prog_m: float, etapa: str) -> str:
-    \"\"\"Ficha del sondaje para RQD y Fotografía.\"\"\"
+    """Ficha del sondaje para RQD y Fotografía."""
     bhid      = sondaje.get("bhid", "—")
     maquina   = sondaje.get("maquina", "—")
     empresa   = sondaje.get("empresa", "—")
     objetivo  = sondaje.get("tajo_objetivo") or sondaje.get("cuerpo_objetivo") or "—"
     diametro  = sondaje.get("diametro", "—")
     pct_perf  = f"{prof_final/prog_m*100:.0f}%" if prog_m > 0 else "—"
- 
     estado_key = {
         "RQD":        "estado_rqd",
         "FOTOGRAFIA": "estado_fotografia",
     }.get(etapa, "")
-    est = sondaje.get(estado_key, "PENDIENTE") if estado_key else "PENDIENTE"
-    est_icon = {"COMPLETADO":"✅","EN_PROCESO":"🟡","PENDIENTE":"🔴",
-                "FIN":"✅"}.get(est, "⬜")
-    etapa_label = {"RQD":"📐 RQD","FOTOGRAFIA":"📸 Fotografía"}.get(etapa, etapa)
- 
+    est      = sondaje.get(estado_key, "PENDIENTE") if estado_key else "PENDIENTE"
+    est_icon = {"COMPLETADO": "✅", "EN_PROCESO": "🟡", "PENDIENTE": "🔴",
+                "FIN": "✅"}.get(est, "⬜")
+    etapa_label = {"RQD": "📐 RQD", "FOTOGRAFIA": "📸 Fotografía"}.get(etapa, etapa)
     return (
-        f"✅ *{bhid}*\\n{'─'*30}\\n"
-        f"🚜 {maquina} ({empresa}) | {diametro}\\n"
-        f"🎯 {objetivo}\\n"
-        f"📏 Perforado: *{prof_final:.1f}/{prog_m:.0f} m* ({pct_perf})\\n"
-        f"{etapa_label}: {est_icon} {est}\\n"
-        f"{'─'*30}\\n"
+        f"✅ *{bhid}*\n{'─'*30}\n"
+        f"🚜 {maquina} ({empresa}) | {diametro}\n"
+        f"🎯 {objetivo}\n"
+        f"📏 Perforado: *{prof_final:.1f}/{prog_m:.0f} m* ({pct_perf})\n"
+        f"{etapa_label}: {est_icon} {est}\n"
+        f"{'─'*30}\n"
     )
 
 
@@ -1249,10 +1250,10 @@ def _resumen_generico(datos: dict) -> str:
     hasta  = datos.get("hasta_m", 0)
     metros = datos.get("metros", hasta - desde)
     return (
-        f"📋 *RESUMEN {etapa}*\\n{'─'*28}\\n"
-        f"🔖 Sondaje: *{datos.get('bhid','—')}*\\n"
-        f"📅 Fecha:   {datos.get('fecha','—')}\\n"
-        f"📏 Tramo:   {desde:.2f} → {hasta:.2f} m ({metros:.2f} m)\\n"
-        f"{'─'*28}\\n"
-        f"¿Confirmas? (*sí* / *no*)\\n"
+        f"📋 *RESUMEN {etapa}*\n{'─'*28}\n"
+        f"🔖 Sondaje: *{datos.get('bhid','—')}*\n"
+        f"📅 Fecha:   {datos.get('fecha','—')}\n"
+        f"📏 Tramo:   {desde:.2f} → {hasta:.2f} m ({metros:.2f} m)\n"
+        f"{'─'*28}\n"
+        f"¿Confirmas? (*sí* / *no*)\n"
     )
