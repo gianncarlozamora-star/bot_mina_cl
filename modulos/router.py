@@ -92,15 +92,14 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
         return mod_matricula.iniciar_anulacion(usuario, sid)
 
-    if accion == "anular_sgs" or any(w in mensaje.lower() for w in (
+    if accion == "anular_sgs" or any(w in msg_limpio.lower() for w in (
             "borrar logueo", "anular logueo", "borrar muestreo",
-            "anular muestreo", "borrar registro sgs", "corregir reporte sgs",
-            "eliminar registro sgs")):
+            "anular muestreo", "borrar registro sgs",
+            "corregir reporte sgs", "eliminar registro sgs")):
         sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
         return mod_anular_sgs.iniciar(usuario, sid)
  
-    # ── Registrar batch (geólogo) ─────────────────────────────
-    if accion == "batch" or any(w in mensaje.lower() for w in (
+    if accion == "batch" or any(w in msg_limpio.lower() for w in (
             "registrar batch", "nuevo batch", "crear batch",
             "batch fusion", "envío laboratorio", "envio laboratorio")):
         if rol not in {"GEOLOGO", "ADMIN"}:
@@ -225,12 +224,20 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
         resultado = mod_certimin.procesar(mensaje, usuario, sesion)
         return _enriquecer_certimin(resultado, paso, remitente)
 
-    if flujo == FLUJOS["ANULAR_SGS"]:
-        return mod_anular_sgs.procesar(mensaje, usuario, sesion)
+    if accion == "anular_sgs" or any(w in msg_limpio.lower() for w in (
+            "borrar logueo", "anular logueo", "borrar muestreo",
+            "anular muestreo", "borrar registro sgs",
+            "corregir reporte sgs", "eliminar registro sgs")):
+        sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
+        return mod_anular_sgs.iniciar(usuario, sid)
  
-    if flujo == FLUJOS["BATCH_GEOLOGO"]:
-        resultado = mod_batch_geologo.procesar(mensaje, usuario, sesion)
-        return _enriquecer_batch(resultado, paso, sid, remitente)
+    if accion == "batch" or any(w in msg_limpio.lower() for w in (
+            "registrar batch", "nuevo batch", "crear batch",
+            "batch fusion", "envío laboratorio", "envio laboratorio")):
+        if rol not in {"GEOLOGO", "ADMIN"}:
+            return "⛔ Solo los geólogos pueden registrar batches."
+        sid = crear_sesion(usuario["id"], FLUJOS["BATCH_GEOLOGO"])
+        return mod_batch_geologo.iniciar(usuario, sid)
    
     if flujo == FLUJOS["DESCARGA_EXCEL"]:
         return _procesar_descarga(mensaje, usuario, sesion)
@@ -380,7 +387,6 @@ def _enriquecer_sgs(resultado, paso_anterior, sesion_id, remitente):
     # Texto libre en todos los demás pasos
     return resultado
 
-
 def _enriquecer_batch(resultado, paso_anterior, sesion_id, remitente):
     from db.conexion import ejecutar as _ej
     row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
@@ -393,6 +399,7 @@ def _enriquecer_batch(resultado, paso_anterior, sesion_id, remitente):
         return {"tipo": "interactivo"}
  
     return resultado
+
 
 
 
