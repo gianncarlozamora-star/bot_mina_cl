@@ -246,7 +246,8 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
         "sgs": "sgs", "certimin": "certimin", "resumen": "resumen",
         "descarga": "descargar", "tajo": "consultar tajo",
         "objetivo": "consultar objetivo", "consulta": "estado",
-        "anular": "anular sondaje",
+        "anular": "anular sondaje", "batch":"registrar batch",
+        "anular_sgs":  "anular sgs",
     }
     if item_id in acciones_menu:
         return acciones_menu[item_id]
