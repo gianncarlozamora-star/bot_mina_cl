@@ -112,6 +112,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "batch",       "titulo": "📦 Registrar batch",    "desc": "Batch Fusion → Certimin"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
+                {"id": "reporte_sgs", "titulo": "📋 Reporte SGS",       "desc": "Consolidado diario para geología"},
             ]
         },
         "PERFORISTA": {
@@ -149,6 +150,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "certimin",    "titulo": "🧪 Certimin",           "desc": "Confirmar batch"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
+                {"id": "reporte_sgs", "titulo": "📋 Reporte SGS",    "desc": "Consolidado diario para geología"},
             ]
         },
         "GERENCIA": {
@@ -261,6 +263,8 @@ def menu_etapas_sgs(telefono: str):
                      "desc": "Corregir un reporte SGS"},
                     {"id": "batch",      "titulo": "📦 Registrar batch",
                      "desc": "Batch Fusion → laboratorio"},
+                    {"id": "reporte_sgs", "titulo": "📋 Reporte diario",
+                     "desc": "Consolidado SGS del día"},
                 ]
             }
         ],
