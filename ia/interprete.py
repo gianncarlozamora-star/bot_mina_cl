@@ -21,7 +21,11 @@ Analiza el mensaje y devuelve SOLO un JSON con esta estructura:
 
 INTENCIONES VÁLIDAS:
 - matricula      → quiere registrar/crear/matricular un nuevo sondaje DDH
-- anular         → quiere anular, eliminar o borrar un sondaje
+- anular         → quiere anular, eliminar o borrar un SONDAJE (la matrícula del DDH)
+- anular_sgs     → quiere borrar o corregir un registro SGS (logueo, muestreo, rqd, foto, densidad). Frases: "borrar mi logueo", "anular muestreo", "eliminar registro", "corregir reporte sgs", "quiero borrar un registro"
+- anular_reporte → quiere anular su último reporte de PERFORACIÓN (avance de metros)
+- batch          → quiere registrar un nuevo batch de muestras para envío a laboratorio. Frases: "registrar batch", "nuevo batch", "crear batch", "batch fusion", "envío laboratorio"
+- certimin       → Certimin confirma recepción o resultados de un batch ya enviado
 - perforacion    → reporte de avance de perforación, metros perforados, turno
 - sgs            → logueo, muestreo, RQD, fotografía o densidad
 - certimin       → envío o confirmación de batch de laboratorio
