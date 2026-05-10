@@ -551,17 +551,15 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             )
 
             msg_individual = generar_mensaje_estandarizado(datos)
-            empresa_nombre = _obtener_empresa(datos)
-            datos["msg_individual"]  = msg_individual
-            datos["empresa_nombre"]  = empresa_nombre
+            datos["msg_individual"] = msg_individual
 
             reporte_base = (
                 f"✅ *Reporte registrado*\n📅 {fecha_hora_str()}\n\n"
                 f"─────────────────────\n"
-                f"📋 *TU REPORTE — {datos.get('maquina_cod','—')}:*\n"
+                f"💎 *TU REPORTE — {datos.get('maquina_cod','—')}:*\n"
                 f"_(Copia y reenvía)_\n\n"
                 f"{msg_individual}\n"
-                f"─────────────────────\n\n"
+                f"─────────────────────"
             )
 
             # Sondaje marcado como finalizado por el perforista
@@ -571,14 +569,10 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                     (datos.get("fecha"), datos["bhid"])
                 )
                 datos["es_fin"] = True
-                reporte_base += f"🎉 *{datos['bhid']}* marcado como *FINALIZADO*\n\n"
+                reporte_base += f"\n\n🎉 *{datos['bhid']}* marcado como *FINALIZADO*"
 
-            actualizar_sesion(sid, "reporte_empresa", datos)
-            return (
-                reporte_base +
-                f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
-                f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
-            )
+            cerrar_sesion(usuario["id"])
+            return reporte_base
 
         except Exception as e:
             print(f"[PERFORACION] Error: {e}")
@@ -591,106 +585,10 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                 "UPDATE sondajes SET estado_perforacion='FINALIZADO', fecha_fin_perf=%s WHERE bhid=%s",
                 (datos.get("fecha"), datos["bhid"])
             )
-            datos["es_fin"] = True
-            msg_extra = f"✅ *{datos['bhid']}* marcado como *FINALIZADO* 🎉\n\n"
-        else:
-            msg_extra = "✅ Sondaje continúa en curso.\n\n"
-
-        empresa_nombre = datos.get("empresa_nombre", "tu empresa")
-        actualizar_sesion(sid, "reporte_empresa", datos)
-        return (
-            msg_extra +
-            f"¿Generar reporte consolidado de *{empresa_nombre}*?\n"
-            f"  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar\n"
-        )
-
-    # ── Reporte consolidado ───────────────────────────────────
-    elif paso == "reporte_empresa":
-        if msg.lower() == "fin":
             cerrar_sesion(usuario["id"])
-            return "✅ Sesión cerrada. Escribe *hola* cuando necesites."
-        if msg.lower() in ("no", "n", "otra"):
-            return _menu_siguiente_maquina(sid, datos)
-        if msg.lower() not in ("sí", "si", "yes", "ok"):
-            return "  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar"
-
-        try:
-            empresa_id = datos.get("empresa_id", 1)
-            fecha      = datos.get("fecha")
-            turno      = datos.get("turno")
-            rows = ejecutar(
-                """SELECT ap.prof_inicio, ap.prof_final,
-                          (ap.prof_final - ap.prof_inicio) AS avance,
-                          ap.observaciones, m.codigo, s.bhid,
-                          s.nivel_prog, s.labor, s.diametro, s.profundidad_prog
-                   FROM avance_perforacion ap
-                   JOIN sondajes s     ON ap.sondaje_id = s.id
-                   JOIN cat_maquinas m ON ap.maquina_id = m.id
-                   WHERE m.empresa_id = %s AND ap.fecha = %s
-                     AND ap.turno = %s AND ap.estado = 'ACTIVO'
-                   ORDER BY m.codigo""",
-                (empresa_id, fecha, turno), fetchall=True
-            )
-            if not rows:
-                # No hay más reportes — terminar directamente
-                cerrar_sesion(usuario["id"])
-                return (
-                    f"⚠️ Solo hay un reporte registrado para este turno.\n"
-                    f"El reporte individual ya fue enviado. ✅\n\n"
-                    f"Escribe *hola* cuando necesites."
-                )
-
-            reportes = [{
-                "prof_inicio": float(r[0] or 0), "prof_final": float(r[1] or 0),
-                "avance": float(r[2] or 0), "observaciones": r[3] or "",
-                "maquina_cod": r[4], "bhid": r[5], "sondaje_nivel": r[6],
-                "sondaje_labor": r[7], "diametro": r[8], "prog_m": r[9],
-                "turno": turno, "fecha": fecha,
-            } for r in rows]
-
-            # Detectar máquinas de la empresa que NO reportaron
-            maquinas_empresa = ejecutar(
-                """SELECT codigo FROM cat_maquinas
-                   WHERE empresa_id = %s AND activo = TRUE""",
-                (empresa_id,), fetchall=True
-            )
-            maquinas_reportaron = {r["maquina_cod"] for r in reportes}
-            sin_reporte = [
-                m[0] for m in (maquinas_empresa or [])
-                if m[0] not in maquinas_reportaron
-            ]
-
-            emp_row = ejecutar("SELECT nombre FROM cat_empresas WHERE id=%s",
-                               (empresa_id,), fetchone=True)
-            empresa_nombre = emp_row[0] if emp_row else "Empresa"
-            consolidado    = generar_reporte_empresa(
-                reportes, empresa_nombre, fecha,
-                maquinas_sin_reporte=sin_reporte
-            )
-
-            # Después del consolidado → terminar o registrar otra máquina
-            actualizar_sesion(sid, "post_consolidado", datos)
-            return (
-                f"─────────────────────\n"
-                f"🏢 *{empresa_nombre.upper()} — TURNO {turno}*\n"
-                f"_(Copia y reenvía)_\n\n{consolidado}\n"
-                f"─────────────────────\n\n"
-                f"¿Registrar otra máquina?\n"
-                f"  *sí* — Continuar\n  *no* — Terminar\n"
-            )
-        except Exception as e:
-            print(f"[PERFORACION] Error consolidado: {e}")
-            cerrar_sesion(usuario["id"])
-            return "⚠️ Error generando consolidado. Tu reporte ya fue guardado."
-
-    # ── Post consolidado ──────────────────────────────────────
-    elif paso == "post_consolidado":
-        if msg.lower() in ("no", "n", "fin", "terminar"):
-            cerrar_sesion(usuario["id"])
-            return "✅ Listo. Escribe *hola* cuando necesites."
-        if msg.lower() in ("sí", "si", "yes", "ok"):
-            return _menu_siguiente_maquina(sid, datos)
-        return "*sí* para otra máquina o *no* para terminar."
+            return f"✅ *{datos['bhid']}* marcado como *FINALIZADO* 🎉\n📅 {fecha_hora_str()}"
+        cerrar_sesion(usuario["id"])
+        return "✅ Sondaje continúa en curso. Escribe *hola* cuando necesites."
 
     # ── Anular último reporte ─────────────────────────────────
     elif paso == "anular_reporte":
