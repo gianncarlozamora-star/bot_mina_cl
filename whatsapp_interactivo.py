@@ -106,9 +106,10 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "cuerpo": f"Hola *{nombre}* 👷\n¿Qué deseas hacer?",
             "opciones_lista": [
                 {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Registrar nuevo sondaje"},
-                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
-                {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
-                {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo, RQD..."},
+                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matricula DDH"},
+                {"id": "perforacion", "titulo": "Perforacion Diamantina","desc": "Registrar avance turno"},
+                {"id": "gestion_perf","titulo": "Gestion Perforacion",  "desc": "Consolidado y activos"},
+                {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo, RQD"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
             ]
@@ -116,8 +117,9 @@ def menu_principal_rol(telefono: str, usuario: dict):
         "PERFORISTA": {
             "cuerpo": f"Hola *{nombre}* ⛏️\n¿Qué deseas hacer?",
             "opciones_lista": [
-                {"id": "perforacion", "titulo": "⛏️ Reportar avance",   "desc": "Reporte de turno"},
-                {"id": "consulta",    "titulo": "🔍 Consultar sondaje", "desc": "Estado de un DDH"},
+                {"id": "perforacion", "titulo": "Perforacion Diamantina","desc": "Registrar avance"},
+                {"id": "gestion_perf","titulo": "Ver consolidado",       "desc": "Estado del turno"},
+                {"id": "consulta",    "titulo": "🔍 Consultar sondaje",  "desc": "Estado de un DDH"},
             ]
         },
         "SGS": {
@@ -141,9 +143,10 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "cuerpo": f"Hola *{nombre}* 🔧\n¿Qué deseas hacer?",
             "opciones_lista": [
                 {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Nuevo sondaje"},
-                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
-                {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
-                {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo..."},
+                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matricula DDH"},
+                {"id": "perforacion", "titulo": "Perforacion Diamantina","desc": "Registrar avance"},
+                {"id": "gestion_perf","titulo": "Gestion Perforacion",  "desc": "Consolidado y activos"},
+                {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo"},
                 {"id": "certimin",    "titulo": "🧪 Certimin",           "desc": "Confirmar batch"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
