@@ -137,14 +137,14 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return _ficha_densidad(sondaje, prof_final, prog_m) + aviso
 
         else:
-            # RQD, FOTOGRAFIA
+            # RQD, FOTOGRAFIA — flujo simplificado
+            prof_final = float(sondaje.get("final_m") or 0)
+            prog_m     = float(sondaje.get("prog_m") or 0)
+            datos.update({"prof_final": prof_final, "prog_m": prog_m})
+            aviso = _aviso_etapa_previa(sondaje["bhid"], etapa)
             actualizar_sesion(sid, "fecha_trabajo", datos,
                               sondaje_context=sondaje["bhid"])
-            return (
-                f"✅ Sondaje: *{sondaje['bhid']}*\n"
-                f"   Prog: {sondaje.get('prog_m','—')} m | "
-                f"Final: {float(sondaje.get('final_m') or 0):.1f} m\n\n"
-                f"¿*Fecha* del trabajo? (DD/MM o *hoy*)\n"
+            return _ficha_generica(sondaje, prof_final, prog_m, etapa) + aviso
             )
 
     # ══════════════════════════════════════════════════════════
@@ -690,80 +690,77 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         datos["fecha"] = fecha
         actualizar_sesion(sid, "tramo_desde", datos)
         return (
-            f"✅ Fecha: *{fecha}*\n\n"
-            f"¿*Desde* qué metro trabajaste?\n"
-            f"Ejemplo: 0, 50.5\n"
+            f"✅ Fecha: *{fecha}*\\n\\n"
+            f"¿*Desde* qué metro trabajaste?\\n"
+            f"Ejemplo: 0, 50.5\\n"
         )
-
+ 
     elif paso == "tramo_desde":
         try:
-            datos["desde_m"] = float(msg.replace(",", "."))
-        except:
+            desde = float(msg.replace(",", "."))
+            if desde < 0: raise ValueError
+            datos["desde_m"] = desde
+        except ValueError:
             return "❓ Número válido. Ejemplo: 50.5"
         actualizar_sesion(sid, "tramo_hasta", datos)
-        return "¿*Hasta* qué metro?\n"
-
+        return (
+            f"✅ Desde: *{desde:.2f} m*\\n\\n"
+            f"¿*Hasta* qué metro?\\n"
+            f"Perforado hasta: {datos.get('prof_final', 0):.2f} m\\n"
+        )
+ 
     elif paso == "tramo_hasta":
         try:
             hasta = float(msg.replace(",", "."))
-            if hasta <= datos.get("desde_m", 0):
-                return f"❓ Debe ser mayor a {datos['desde_m']:.2f} m."
+            desde = datos.get("desde_m", 0)
+            if hasta <= desde:
+                return f"❓ Debe ser mayor a {desde:.2f} m."
             datos["hasta_m"] = hasta
-        except:
+        except ValueError:
             return "❓ Número válido."
-        metros = datos["hasta_m"] - datos["desde_m"]
-        actualizar_sesion(sid, "tecnico_generico", datos)
-        return (
-            f"✅ Tramo: *{datos['desde_m']:.2f} — {datos['hasta_m']:.2f} m* "
-            f"({metros:.2f} m)\n\n"
-            f"¿Nombre del *técnico* responsable?\n"
-        )
-
-    elif paso == "tecnico_generico":
-        datos["tecnico"] = msg.strip()
-        actualizar_sesion(sid, "foto_opcional", datos)
-        return (
-            f"✅ Técnico: *{datos['tecnico']}*\n\n"
-            f"📸 ¿Adjuntar foto?\n"
-            f"Envía la foto o escribe *no*.\n"
-        )
-
-    elif paso == "foto_opcional":
-        if msg.lower() in ("no", "n", "omitir"):
-            datos["foto_url"] = None
+ 
+        metros = hasta - datos["desde_m"]
+        bhid   = datos.get("bhid", "")
+        etapa  = datos.get("etapa", "")
+ 
+        # Verificar solapamiento con registros existentes
+        aviso_solape = _verificar_solapamiento(bhid, etapa,
+                                               datos["desde_m"], hasta)
+        datos["metros"] = round(metros, 2)
         actualizar_sesion(sid, "confirmacion_generica", datos)
-        return _resumen_generico(datos)
-
+        return _resumen_generico(datos) + aviso_solape
+ 
     elif paso == "confirmacion_generica":
-        if msg.lower() in ("no", "cancelar"):
+        if msg.lower() in ("no", "cancelar", "n"):
             cerrar_sesion(usuario["id"])
             return "❌ Reporte cancelado."
         if msg.lower() not in ("sí", "si", "ok", "confirma", "yes"):
             return "¿Confirmas? Responde *sí* o *no*."
         try:
             ejecutar(
-                """INSERT INTO etapas_sgs (
+                \"\"\"INSERT INTO etapas_sgs (
                        sondaje_id, etapa, fecha, desde_m, hasta_m,
-                       tecnico, foto_url, foto_descripcion,
-                       reportado_por, fuente
-                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOT')""",
+                       metros, tecnico, reportado_por, fuente
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'BOT')\"\"\",
                 (
                     datos.get("sondaje_id"), datos.get("etapa"),
-                    datos.get("fecha"), datos.get("desde_m"), datos.get("hasta_m"),
-                    datos.get("tecnico"),
-                    datos.get("foto_url"), datos.get("foto_descripcion"),
-                    usuario["id"]
+                    datos.get("fecha"),
+                    datos.get("desde_m"), datos.get("hasta_m"),
+                    datos.get("metros"),
+                    usuario["nombre"],   # técnico = usuario WhatsApp
+                    usuario["id"],
                 )
             )
             etapa_key = datos["etapa"].lower()
             actualizar_estado_etapa(datos["bhid"], etapa_key, "EN_PROCESO")
             cerrar_sesion(usuario["id"])
             return (
-                f"✅ *{datos['etapa']} registrado*\n"
-                f"🔬 {datos['etapa']} | *{datos['bhid']}*\n"
-                f"📏 {datos['desde_m']:.2f} — {datos['hasta_m']:.2f} m\n"
-                f"📅 {fecha_hora_str()}\n"
-                f"👤 {datos.get('tecnico','—')}\n"
+                f"✅ *{datos['etapa']} registrado*\\n"
+                f"🔬 {datos['etapa']} | *{datos['bhid']}*\\n"
+                f"📏 {datos['desde_m']:.2f} → {datos['hasta_m']:.2f} m "
+                f"({datos.get('metros', 0):.2f} m)\\n"
+                f"📅 {fecha_hora_str()}\\n"
+                f"👤 {usuario['nombre']}\\n"
             )
         except Exception as e:
             print(f"[SGS-{datos.get('etapa','')}] Error: {e}")
@@ -1135,6 +1132,7 @@ def _resumen_densidad(datos: dict) -> str:
     )
 
 
+
 def _resumen_logueo(datos: dict) -> str:
     desde = datos.get("desde_m", 0)
     hasta = datos.get("hasta_m", 0)
@@ -1151,15 +1149,110 @@ def _resumen_logueo(datos: dict) -> str:
     )
 
 
-def _resumen_generico(datos: dict) -> str:
-    etapa = datos.get("etapa", "—")
+def _aviso_etapa_previa(bhid: str, etapa: str) -> str:
+    \"\"\"Avisa si ya hay registros de esta etapa en el sondaje.\"\"\"
+    rows = ejecutar(
+        \"\"\"SELECT e.fecha, e.desde_m, e.hasta_m, e.tecnico
+           FROM etapas_sgs e
+           JOIN sondajes s ON e.sondaje_id = s.id
+           WHERE s.bhid = %s AND e.etapa = %s
+             AND COALESCE(e.estado, 'ACTIVO') != 'ANULADO'
+           ORDER BY e.id DESC LIMIT 3\"\"\",
+        (bhid, etapa), fetchall=True
+    )
+    if not rows:
+        return f"\\n¿*Fecha* del trabajo? (DD/MM o *hoy*)\\n"
+ 
+    etapa_label = {
+        "RQD":        "📐 RQD",
+        "FOTOGRAFIA": "📸 Fotografía",
+    }.get(etapa, etapa)
+ 
+    lineas = [f"\\n⚠️ *{etapa_label} previo registrado:*"]
+    for r in rows:
+        fecha, desde, hasta, tec = r
+        try: fstr = fecha.strftime("%d/%m/%y") if fecha else "—"
+        except: fstr = str(fecha)[:8]
+        lineas.append(
+            f"  📋 {fstr} | "
+            f"{float(desde or 0):.1f}→{float(hasta or 0):.1f}m | "
+            f"{tec or '—'}"
+        )
+    lineas.append(
+        "\\nSi es un *nuevo tramo*, continúa normalmente.\\n"
+        "Si hay *error*, escribe *cancelar*.\\n\\n"
+        "¿*Fecha* del trabajo? (DD/MM o *hoy*)\\n"
+   )
+    return "\\n".join(lineas)
+      
+ 
+def _verificar_solapamiento(bhid: str, etapa: str,
+                             desde: float, hasta: float) -> str:
+    \"\"\"Detecta si el tramo se superpone con registros existentes.\"\"\"
+    rows = ejecutar(
+        \"\"\"SELECT e.fecha, e.desde_m, e.hasta_m
+           FROM etapas_sgs e
+           JOIN sondajes s ON e.sondaje_id = s.id
+           WHERE s.bhid = %s AND e.etapa = %s
+             AND COALESCE(e.estado, 'ACTIVO') != 'ANULADO'
+             AND e.desde_m < %s AND e.hasta_m > %s\"\"\",
+        (bhid, etapa, hasta, desde), fetchall=True
+    )
+    if not rows:
+        return ""
+    solapados = []
+    for r in rows:
+        fecha, d, h = r
+        try: fstr = fecha.strftime("%d/%m") if fecha else "—"
+        except: fstr = "—"
+        solapados.append(f"{fstr}: {float(d):.1f}→{float(h):.1f}m")
+ 
     return (
-        f"📋 *RESUMEN {etapa}*\n{'─'*28}\n"
-        f"🔖 Sondaje: *{datos.get('bhid','—')}*\n"
-        f"📏 Tramo:   {datos.get('desde_m',0):.2f} — {datos.get('hasta_m',0):.2f} m\n"
-        f"📅 Fecha:   {datos.get('fecha','—')}\n"
-        f"👤 Técnico: {datos.get('tecnico','—')}\n"
-        f"📸 Foto:    {'Sí' if datos.get('foto_url') else 'No'}\n"
-        f"{'─'*28}\n"
-        f"¿Confirmas? (*sí* / *no*)\n"
+        f"\\n⚠️ *Solapamiento detectado* con registros existentes:\\n"
+        + "\\n".join(f"  • {s}" for s in solapados)
+        + "\\n\\nConfirma igual si es una corrección, o escribe *no* para ajustar.\\n"
+    )
+ 
+ 
+def _ficha_generica(sondaje: dict, prof_final: float,
+                    prog_m: float, etapa: str) -> str:
+    \"\"\"Ficha del sondaje para RQD y Fotografía.\"\"\"
+    bhid      = sondaje.get("bhid", "—")
+    maquina   = sondaje.get("maquina", "—")
+    empresa   = sondaje.get("empresa", "—")
+    objetivo  = sondaje.get("tajo_objetivo") or sondaje.get("cuerpo_objetivo") or "—"
+    diametro  = sondaje.get("diametro", "—")
+    pct_perf  = f"{prof_final/prog_m*100:.0f}%" if prog_m > 0 else "—"
+ 
+    estado_key = {
+        "RQD":        "estado_rqd",
+        "FOTOGRAFIA": "estado_fotografia",
+    }.get(etapa, "")
+    est = sondaje.get(estado_key, "PENDIENTE") if estado_key else "PENDIENTE"
+    est_icon = {"COMPLETADO":"✅","EN_PROCESO":"🟡","PENDIENTE":"🔴",
+                "FIN":"✅"}.get(est, "⬜")
+    etapa_label = {"RQD":"📐 RQD","FOTOGRAFIA":"📸 Fotografía"}.get(etapa, etapa)
+ 
+    return (
+        f"✅ *{bhid}*\\n{'─'*30}\\n"
+        f"🚜 {maquina} ({empresa}) | {diametro}\\n"
+        f"🎯 {objetivo}\\n"
+        f"📏 Perforado: *{prof_final:.1f}/{prog_m:.0f} m* ({pct_perf})\\n"
+        f"{etapa_label}: {est_icon} {est}\\n"
+        f"{'─'*30}\\n"
+    )
+
+
+def _resumen_generico(datos: dict) -> str:
+    etapa  = datos.get("etapa", "—")
+    desde  = datos.get("desde_m", 0)
+    hasta  = datos.get("hasta_m", 0)
+    metros = datos.get("metros", hasta - desde)
+    return (
+        f"📋 *RESUMEN {etapa}*\\n{'─'*28}\\n"
+        f"🔖 Sondaje: *{datos.get('bhid','—')}*\\n"
+        f"📅 Fecha:   {datos.get('fecha','—')}\\n"
+        f"📏 Tramo:   {desde:.2f} → {hasta:.2f} m ({metros:.2f} m)\\n"
+        f"{'─'*28}\\n"
+        f"¿Confirmas? (*sí* / *no*)\\n"
     )
