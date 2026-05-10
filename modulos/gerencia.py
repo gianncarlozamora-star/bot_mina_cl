@@ -930,7 +930,8 @@ def _calcular_costo_periodo(maq: str, sufijo: str, diam: str, metros: float) -> 
 
 def _obtener_tarifa(diametro: str, sufijo: str, desde: float, hasta: float) -> float:
     """Obtiene la tarifa USD/m según diámetro, sufijo y tramo de profundidad."""
-    punto_medio = (desde + hasta) / 2
+    # pg8000 requiere int para columnas int4 — castear explícitamente
+    punto_medio = int((desde + hasta) / 2)
     row = ejecutar(
         """SELECT precio_usd FROM cat_tarifas
            WHERE diametro = %s
