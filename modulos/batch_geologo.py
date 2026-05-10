@@ -7,10 +7,10 @@ Flujo:
   numero_batch → verificar duplicado →
   sondaje_batch → [segundo sondaje opcional] →
   cant_muestras (pre-cargado de muestreo o manual) →
-  fecha_envio → confirmacion_batch
+  fecha_envio → destino (LOCAL/LIMA) → confirmacion_batch
 
 Tabla que escribe:
-  - laboratorio_certimin (batch cabecera)
+  - laboratorio_certimin (batch cabecera, incluye campo destino)
   - batch_sondajes       (vinculación 1..2 sondajes)
 """
 from db.sesiones import actualizar_sesion, cerrar_sesion
@@ -52,7 +52,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
 
         numero = msg.strip()
 
-        # Verificar que no exista ya
         row = ejecutar(
             "SELECT id, numero_batch FROM laboratorio_certimin WHERE numero_batch = %s",
             (numero,), fetchone=True
@@ -79,8 +78,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             return f"❌ No encontré *{msg}*. Verifica el código."
 
         bhid = sondaje["bhid"]
-
-        # Verificar que tenga muestreo registrado
         muestreo = _muestreo_del_sondaje(bhid)
         datos["sondaje1_id"]   = sondaje.get("id") or _obtener_id(bhid)
         datos["sondaje1_bhid"] = bhid
@@ -130,7 +127,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         datos["sondaje2_bhid"] = bhid2
         datos["sondajes"].append({"id": datos["sondaje2_id"], "bhid": bhid2})
 
-        # Sumar muestras de ambos sondajes si hay muestreo registrado
         if muestreo2 and datos.get("cant_muestras_auto"):
             total_auto = datos["cant_muestras_auto"] + muestreo2["total"]
             datos["cant_muestras_auto"] = total_auto
@@ -149,7 +145,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
 
     # ── Cantidad de muestras ──────────────────────────────────
     elif paso == "batch_cant_muestras":
-        # Si viene "ok" o "confirma" usa el valor auto
         if msg.lower() in ("ok", "confirma", "si", "sí", "yes") \
                 and datos.get("cant_muestras_auto"):
             pass  # ya está en datos["cant_muestras"]
@@ -176,6 +171,25 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
         if not fecha:
             return "❓ Formato: *hoy* o DD/MM (ej: 09/05)."
         datos["fecha_envio"] = fecha
+        # ── NUEVO: preguntar destino ──────────────────────────
+        actualizar_sesion(sid, "batch_destino", datos)
+        return (
+            f"✅ Fecha: *{_fmt_fecha(fecha)}*\n\n"
+            f"¿A qué laboratorio Certimin se envía este batch?\n"
+            f"  *1* — 🏭 Certimin *Local* (Ica ~24h)\n"
+            f"  *2* — ✈️  Certimin *Lima* (demora varios días)\n"
+        )
+
+    # ── Destino ───────────────────────────────────────────────
+    elif paso == "batch_destino":
+        if msg in ("1", "local", "ica"):
+            datos["destino"] = "LOCAL"
+        elif msg in ("2", "lima"):
+            datos["destino"] = "LIMA"
+        else:
+            return (
+                f"❓ Responde *1* (Local) o *2* (Lima).\n"
+            )
         actualizar_sesion(sid, "batch_confirmacion", datos)
         return _resumen_batch(datos)
 
@@ -188,18 +202,18 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             return "¿Confirmas? *sí* o *no*."
 
         try:
-            # 1. Crear batch en laboratorio_certimin
             row = ejecutar(
                 """INSERT INTO laboratorio_certimin
                        (numero_batch, cant_muestras, fecha_envio,
-                        creado_por, fuente)
-                   VALUES (%s, %s, %s, %s, 'BOT')
+                        creado_por, fuente, destino)
+                   VALUES (%s, %s, %s, %s, 'BOT', %s)
                    RETURNING id""",
                 (
                     datos["numero_batch"],
                     datos["cant_muestras"],
                     datos["fecha_envio"],
                     usuario["id"],
+                    datos.get("destino", "LOCAL"),
                 ),
                 fetchone=True
             )
@@ -208,7 +222,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
             if not batch_id:
                 return "⚠️ Error creando el batch. Intenta de nuevo."
 
-            # 2. Vincular sondaje(s) en batch_sondajes
             for s in datos.get("sondajes", []):
                 ejecutar(
                     """INSERT INTO batch_sondajes
@@ -218,7 +231,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                     (batch_id, s["id"], datos["numero_batch"])
                 )
 
-            # 3. Actualizar estado_laboratorio a EN_PROCESO
             for s in datos.get("sondajes", []):
                 ejecutar(
                     """UPDATE sondajes SET estado_laboratorio = 'EN_PROCESO'
@@ -228,9 +240,8 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
 
             cerrar_sesion(usuario["id"])
 
-            sondajes_str = " | ".join(
-                s["bhid"] for s in datos.get("sondajes", [])
-            )
+            sondajes_str = " | ".join(s["bhid"] for s in datos.get("sondajes", []))
+            destino_label = "🏭 Local (Ica)" if datos.get("destino") == "LOCAL" else "✈️ Lima"
             return (
                 f"✅ *Batch registrado*\n"
                 f"{'─'*28}\n"
@@ -238,6 +249,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
                 f"🔖 Sondaje:  {sondajes_str}\n"
                 f"🧪 Muestras: {datos['cant_muestras']}\n"
                 f"📅 Envío:    {_fmt_fecha(datos['fecha_envio'])}\n"
+                f"📍 Destino:  {destino_label}\n"
                 f"👤 {usuario['nombre']}\n"
                 f"{'─'*28}\n"
                 f"📌 Certimin confirmará la recepción cuando llegue."
@@ -255,7 +267,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict) -> str:
 # ══════════════════════════════════════════════════════════════
 
 def _muestreo_del_sondaje(bhid: str) -> dict | None:
-    """Retorna el último muestreo activo registrado para el sondaje."""
     row = ejecutar(
         """SELECT e.cant_muestras, e.desde_m, e.hasta_m, e.fecha
            FROM etapas_sgs e
@@ -268,7 +279,6 @@ def _muestreo_del_sondaje(bhid: str) -> dict | None:
     if not row:
         return None
     try:
-        from datetime import datetime
         fecha_str = row[3].strftime("%d/%m") if row[3] else "—"
     except:
         fecha_str = str(row[3])[:5]
@@ -322,6 +332,7 @@ def _resumen_batch(datos: dict) -> str:
     sondajes_str = "\n".join(
         f"  🔖 {s['bhid']}" for s in datos.get("sondajes", [])
     )
+    destino_label = "🏭 Local (Ica)" if datos.get("destino") == "LOCAL" else "✈️ Lima"
     return (
         f"📋 *RESUMEN BATCH*\n{'─'*28}\n"
         f"📦 Número:   *{datos.get('numero_batch','—')}*\n"
@@ -330,6 +341,7 @@ def _resumen_batch(datos: dict) -> str:
         f"{'─'*28}\n"
         f"🧪 Muestras: *{datos.get('cant_muestras','—')}*\n"
         f"📅 Envío:    {_fmt_fecha(datos.get('fecha_envio',''))}\n"
+        f"📍 Destino:  {destino_label}\n"
         f"{'─'*28}\n"
         f"¿Confirmas? (*sí* / *no*)\n"
     )
