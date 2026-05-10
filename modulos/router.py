@@ -21,6 +21,7 @@ import modulos.certimin     as mod_certimin
 import modulos.gerencia     as mod_gerencia
 import modulos.anular_sgs    as mod_anular_sgs
 import modulos.batch_geologo as mod_batch_geologo
+import modulos.reporte_sgs as mod_reporte_sgs
 
 ROLES_MATRICULA   = {"GEOLOGO", "ADMIN"}
 ROLES_PERFORACION = {"PERFORISTA", "ADMIN"}
@@ -54,6 +55,15 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         cerrar_sesion(usuario["id"])
         sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
         return mod_anular_sgs.iniciar(usuario, sid)
+
+    if msg_limpio.lower() in ("reporte sgs", "reporte diario sgs",
+                               "generar reporte sgs"):
+        cerrar_sesion(usuario["id"])
+        rol = usuario["rol"]
+        if rol not in {"GEOLOGO", "ADMIN"}:
+            return "⛔ Solo los geólogos pueden generar el reporte SGS."
+        sid = crear_sesion(usuario["id"], FLUJOS["REPORTE_SGS"])
+        return mod_reporte_sgs.iniciar(usuario, sid)
  
     if msg_limpio.lower() in ("registrar batch", "batch"):
         cerrar_sesion(usuario["id"])
@@ -183,7 +193,15 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
  
     if accion in ("consulta_pendiente_logueo", "sgs_pendientes"):
         return mod_sgs.consultar_pendientes_logueo()
-  
+
+    if accion == "reporte_sgs" or any(w in mensaje.lower() for w in (
+            "reporte sgs", "generar reporte sgs", "reporte diario sgs",
+            "reporte geologia", "consolidado sgs")):
+        if rol not in {"GEOLOGO", "ADMIN"}:
+            return "⛔ Solo los geólogos pueden generar el reporte SGS."
+        sid = crear_sesion(usuario["id"], FLUJOS["REPORTE_SGS"])
+        return mod_reporte_sgs.iniciar(usuario, sid)
+
     if accion == "resumen":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
             return "⛔ El resumen es solo para gerencia y geólogos."
@@ -248,7 +266,9 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
         resultado = mod_batch_geologo.procesar(mensaje, usuario, sesion)
         return _enriquecer_batch(resultado, paso, sid, remitente)
     
-   
+    if flujo == FLUJOS["REPORTE_SGS"]:
+        return mod_reporte_sgs.procesar(mensaje, usuario, sesion)
+    
     if flujo == FLUJOS["DESCARGA_EXCEL"]:
         return _procesar_descarga(mensaje, usuario, sesion)
 
