@@ -739,13 +739,12 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             ejecutar(
                 """INSERT INTO etapas_sgs (
                        sondaje_id, etapa, fecha, desde_m, hasta_m,
-                       metros, tecnico, reportado_por, fuente
-                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'BOT')""",
+                       tecnico, reportado_por, fuente
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,'BOT')""",
                 (
                     datos.get("sondaje_id"), datos.get("etapa"),
                     datos.get("fecha"),
                     datos.get("desde_m"), datos.get("hasta_m"),
-                    datos.get("metros"),
                     usuario["nombre"],
                     usuario["id"],
                 )
