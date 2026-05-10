@@ -249,6 +249,15 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
     if item_id in gp_map:
         return gp_map[item_id]
 
+    # Selección de empresa para consolidado
+    emp_map = {
+        "emp_explomin":      "consolidado_emp_explomin",
+        "emp_explodrilling": "consolidado_emp_explodrilling",
+        "emp_todas":         "consolidado_emp_todas",
+    }
+    if item_id in emp_map:
+        return emp_map[item_id]
+
     # Acciones del menú principal
     acciones_menu = {
         "matricula":    "matricular",
