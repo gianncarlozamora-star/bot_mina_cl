@@ -41,11 +41,11 @@ FLUJOS = {
     "MODELAMIENTO":    "5",
     "CONSULTA":        "6",
     "DESCARGA_EXCEL":  "7",
-    "ANULAR_SGS":      "8",   
+    "ANULAR_SGS":      "8",   # nuevo — anular registros SGS
     "FOTO":            "9",
-    "BATCH_GEOLOGO":   "10",
+    "BATCH_GEOLOGO":   "10",  # nuevo — registrar batch Fusion
+    "CONSOLIDADO_PERF": "12",  # nuevo — consolidado con empresa/turno/fecha
     "REPORTE_SGS":     "11",
-    "GESTION_PERF":    "12",
 }
 
 # ── TIMEOUT DE SESIÓN (minutos) ───────────────────────────────
