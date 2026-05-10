@@ -6,54 +6,106 @@ from config import ANTHROPIC_KEY, MODELO_IA
 def interpretar_mensaje(mensaje: str, usuario: dict) -> dict:
     """
     Interpreta el mensaje en lenguaje natural y retorna un dict con:
-    - intencion, bhid, tajo, objetivo, etapa_sgs, respuesta_libre
+    intencion, bhid, tajo, objetivo, etapa_sgs, periodo,
+    numero_batch, etapa_pendiente, filtro_foto, respuesta_libre
     """
     system = f"""Eres el asistente de gestión minera de Cerro Lindo (Perú).
 Analiza el mensaje y devuelve SOLO un JSON con esta estructura:
 {{
   "intencion": "<ver opciones abajo>",
   "bhid": "<código DDH normalizado, ej: PECLD08422>",
-  "tajo": "<código tajo, ej: T-008 o Tj.001>",
-  "objetivo": "<cuerpo/objetivo, ej: OB1, EXT-OB1, OB1_01>",
+  "tajo": "<código tajo, ej: T-008>",
+  "objetivo": "<cuerpo/objetivo, ej: OB1, EXT-OB1>",
   "etapa_sgs": "<logueo|muestreo|rqd|fotografia|densidad>",
+  "periodo": "<semana|mes|hoy|null>",
+  "mes": <número 1-12 o null>,
+  "numero_batch": "<número batch si mencionan uno, ej: 7094>",
+  "etapa_pendiente": "<logueo|muestreo|modelado|estimacion|laboratorio|null>",
+  "filtro_foto": "<perforacion|sgs|null>",
   "respuesta_libre": "<respuesta corta en español solo si intencion=desconocido>"
 }}
 
 INTENCIONES VÁLIDAS:
-- matricula      → quiere registrar/crear/matricular un nuevo sondaje DDH
-- anular         → quiere anular, eliminar o borrar un SONDAJE (la matrícula del DDH)
-- anular_sgs     → quiere borrar o corregir un registro SGS (logueo, muestreo, rqd, foto, densidad). Frases: "borrar mi logueo", "anular muestreo", "eliminar registro", "corregir reporte sgs", "quiero borrar un registro"
-- anular_reporte → quiere anular su último reporte de PERFORACIÓN (avance de metros)
-- batch          → quiere registrar un nuevo batch de muestras para envío a laboratorio. Frases: "registrar batch", "nuevo batch", "crear batch", "batch fusion", "envío laboratorio"
-- certimin       → Certimin confirma recepción o resultados de un batch ya enviado
-- perforacion    → reporte de avance de perforación, metros perforados, turno
-- sgs            → logueo, muestreo, RQD, fotografía o densidad
-- certimin       → envío o confirmación de batch de laboratorio
-- modelado       → modelamiento o estimación de un DDH
-- consulta_ddh   → pregunta por el estado de un DDH específico
-- consulta_tajo  → pregunta por sondajes de un tajo (T-XXX)
-- consulta_objetivo → pregunta por sondajes de un cuerpo/objetivo (OB1, etc.)
-- consulta_foto  → quiere ver una foto registrada de un sondaje
-- reporte_sgs → quiere generar el reporte consolidado diario SGS para enviar al área de geología. Frases: "generar reporte sgs","reporte diario", "reporte de hoy sgs", "consolidado sgs","reporte geologia"
-- anular_reporte   → quiere anular, borrar o eliminar su último reporte de perforación
-- consulta_activos → pregunta por sondajes activos, en perforación, en curso, qué máquinas están perforando, objetivos en perforación, avance actual por máquina
-- consulta_logueo_activos  → pregunta qué sondajes tienen logueo pendiente, activos sin loguear, cuánto falta loguear
-- consulta_finalizados     → pregunta qué sondajes finalizaron este mes, cuáles terminaron, sondajes concluidos
-- consulta_pendiente_logueo → pregunta cuáles sondajes (activos o finalizados) les falta completar el logueo, atraso en logueo
-- resumen        → pide resumen general, KPIs, totales
-- descarga       → quiere descargar Excel o reporte
-- menu           → saludo, ayuda, menú, inicio, hola, opciones
-- desconocido    → no encaja en ninguna categoría anterior
+- matricula           → registrar/crear/matricular nuevo sondaje DDH
+- anular              → anular/eliminar/borrar un SONDAJE (la matrícula del DDH)
+- anular_sgs          → borrar o corregir registro SGS (logueo, muestreo, rqd, foto, densidad)
+                        Frases: "borrar mi logueo", "anular muestreo", "corregir reporte sgs"
+- anular_reporte      → anular último reporte de PERFORACIÓN (avance de metros)
+- batch               → registrar nuevo batch Fusion para envío a laboratorio
+- certimin            → Certimin confirma recepción o resultados de un batch
+- perforacion         → reporte de avance de perforación, metros perforados, turno
+- sgs                 → logueo, muestreo, RQD, fotografía o densidad
+- modelamiento        → registrar modelamiento o estimación de sondajes
+- reporte_sgs         → generar reporte consolidado diario SGS
+                        Frases: "reporte sgs", "reporte diario", "consolidado sgs"
+
+- consulta_ddh        → estado/historia completa de un DDH específico
+                        Frases: "cómo está el 8422", "estado del 8422",
+                        "historia del 8422", "qué pasó con el 8422",
+                        "el 8422 ya fue logueado?", "a qué batch pertenece el 8422"
+- consulta_tajo       → sondajes de un tajo (T-XXX)
+- consulta_objetivo   → sondajes de un cuerpo/objetivo (OB1, EXT-OB1)
+- consulta_foto       → ver foto de un sondaje
+                        Frases: "foto del 8422", "foto de perforación del 8422",
+                        "foto de logueo del 8422", "última foto del 8422"
+                        → si dice "perforación" poner filtro_foto=perforacion
+                        → si dice "logueo" o "sgs" poner filtro_foto=sgs
+- consulta_batch      → estado de un batch específico
+                        Frases: "estado del batch 7094", "el batch 7094 fue analizado",
+                        "qué pasó con el batch 7094"
+- consulta_activos    → sondajes activos en perforación, qué máquinas perforan
+- consulta_semana     → metros perforados esta semana, avance semanal, costo semanal
+                        Frases: "cuánto se perforó esta semana", "metros de la semana",
+                        "costo de esta semana", "rendimiento semanal"
+- consulta_mes        → metros perforados este mes o un mes específico
+                        Frases: "cuánto se perforó este mes", "metros de mayo",
+                        "costo del mes", "avance mensual", "cuánto va el mes"
+                        → si menciona un mes específico poner campo mes (1-12)
+- ranking_maquinas    → ranking productividad por máquina, cuál máquina perfora más,
+                        máquina más productiva, comparar máquinas
+                        Frases: "cuál máquina perfora más", "ranking de máquinas",
+                        "qué máquina es la mejor"
+- consulta_pendientes → qué falta, pendientes por etapa, atrasos, brechas
+                        Frases: "qué falta loguear", "qué sondajes faltan modelar",
+                        "qué está atrasado", "pendientes de muestreo",
+                        "qué falta para completar", "cuánto falta"
+                        → poner etapa_pendiente si se especifica una etapa
+- consulta_logueo_activos  → sondajes con logueo en curso o pendiente de loguear
+- consulta_finalizados     → sondajes finalizados este mes
+- consulta_pendiente_logueo → sondajes sin completar el logueo
+- resumen             → resumen general, KPIs, totales de campaña
+- descarga            → descargar Excel o reporte
+- gestion_perforacion → submenú gestión perforación (consolidado, activos, métricas)
+- consolidado_turno   → consolidado de turno por empresa
+- metricas_turno      → métricas del turno actual
+- menu                → saludo, ayuda, menú, inicio, hola, opciones
+- desconocido         → no encaja en ninguna categoría anterior
 
 REGLAS DE NORMALIZACIÓN DE BHID:
 - "8422", "el 8422", "pecld8422", "PECLD-08422" → "PECLD08422"
 - Los últimos 4 dígitos son siempre confiables
 - Si solo hay 4 dígitos, agregar prefijo PECLD0 → "PECLD08422"
-- Errores de prefijo como "PELD", "PKCLD", "PECLDD" → corregir a "PECLD"
+- Errores de prefijo: "PELD", "PKCLD", "PECLDD" → corregir a "PECLD"
+- Si el código tiene más de 4 dígitos al final usar los últimos 5
 
 REGLAS DE NORMALIZACIÓN DE TAJO:
 - "T008", "tajo 8", "t-008", "el T008" → "T-008"
 - "tajo 695", "T695" → "T-695"
+
+REGLAS DE PERÍODO:
+- "esta semana", "semana", "últimos 7 días" → periodo=semana
+- "este mes", "el mes", "lo que va del mes" → periodo=mes, mes=null
+- "en mayo", "del mes de mayo", "mayo" → periodo=mes, mes=5
+- "hoy", "de hoy" → periodo=hoy
+
+REGLAS ESPECIALES:
+- Si preguntan por historia/trazabilidad completa de un DDH → consulta_ddh
+- Si preguntan por batch de un sondaje → consulta_ddh (bhid presente)
+- Si preguntan por estado de un batch específico → consulta_batch (numero_batch presente)
+- Si preguntan por fotos → consulta_foto, detectar filtro_foto
+- Si preguntan qué falta/pendiente con etapa específica → consulta_pendientes + etapa_pendiente
+- "modelamiento" o "estimar" sin DDH específico → modelamiento (flujo de registro)
+- "modelamiento" o "estimación" con DDH → consulta_ddh
 
 Usuario actual: {usuario.get('nombre','?')} | Rol: {usuario.get('rol','?')}
 
@@ -63,7 +115,7 @@ Devuelve SOLO el JSON sin texto adicional, sin backticks, sin explicaciones."""
         cliente = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
         resp = cliente.messages.create(
             model=MODELO_IA,
-            max_tokens=300,
+            max_tokens=400,
             system=system,
             messages=[{"role": "user", "content": mensaje}]
         )
@@ -72,7 +124,8 @@ Devuelve SOLO el JSON sin texto adicional, sin backticks, sin explicaciones."""
         return json.loads(texto)
     except Exception as e:
         print(f"[IA] Error interpretando: {e}")
-        return {"intencion": "desconocido", "respuesta_libre": "No entendí el mensaje."}
+        return {"intencion": "desconocido",
+                "respuesta_libre": "No entendí el mensaje."}
 
 
 def _fmt_fecha(fecha: str) -> str:
@@ -117,14 +170,12 @@ def generar_mensaje_estandarizado(datos: dict) -> str:
     objetivo = datos.get("tajo_objetivo") or datos.get("cuerpo_objetivo") or "—"
     obs      = _obs_relevante(datos.get("observaciones", ""))
 
-    # Calcular porcentaje de avance total
     try:
         prog_f = float(prog)
         pct    = f" ({hasta/prog_f*100:.0f}%)" if prog_f > 0 else ""
     except:
         pct = ""
 
-    # Cambio de línea
     cambio_str = ""
     if datos.get("hubo_cambio_linea"):
         cambio_str = (
@@ -133,7 +184,6 @@ def generar_mensaje_estandarizado(datos: dict) -> str:
             f"en {datos.get('metro_cambio_linea',0):.1f}m"
         )
 
-    # ¿Finalizó?
     fin_str = " ✅ FIN" if datos.get("posible_fin") else ""
 
     lineas = [
@@ -152,7 +202,6 @@ def generar_reporte_empresa(reportes: list, empresa: str, fecha: str,
                              maquinas_sin_reporte: list = None) -> str:
     """
     Genera reporte consolidado compacto por empresa.
-    Formato aprobado: una línea por máquina con info esencial.
     """
     fecha_fmt    = _fmt_fecha(fecha)
     total_avance = sum(float(r.get("avance") or 0) for r in reportes)
@@ -176,7 +225,6 @@ def generar_reporte_empresa(reportes: list, empresa: str, fecha: str,
         obs      = _obs_relevante(r.get("observaciones", ""))
         fin_str  = " ✅ FIN" if r.get("es_fin") else ""
 
-        # Porcentaje sobre programa
         try:
             pct = f" ({hasta/float(prog)*100:.0f}%)" if prog and float(prog) > 0 else ""
         except:
@@ -188,7 +236,6 @@ def generar_reporte_empresa(reportes: list, empresa: str, fecha: str,
         if obs:
             lineas.append(f"   ⚠️ {obs}")
 
-    # Máquinas sin reporte
     if maquinas_sin_reporte:
         for maq in maquinas_sin_reporte:
             lineas.append(f"\n🚜 {maq} | sin reporte ⏳")
@@ -205,13 +252,13 @@ def generar_reporte_empresa(reportes: list, empresa: str, fecha: str,
 
 
 def responder_consulta_gerencia(pregunta: str, datos: dict) -> str:
-    """Genera respuesta en lenguaje natural para consultas de gerencia."""
+    """Genera respuesta en lenguaje natural para consultas complejas."""
     system = """Eres el asistente de inteligencia de negocios de Cerro Lindo.
 Responde en español de forma clara, concisa y profesional.
-Usa los datos proporcionados para responder la pregunta del gerente.
+Usa los datos proporcionados para responder la pregunta.
 Formatea los números con separadores de miles. Sin texto innecesario."""
 
-    prompt = f"""Pregunta del gerente: {pregunta}
+    prompt = f"""Pregunta: {pregunta}
 
 Datos disponibles:
 {json.dumps(datos, ensure_ascii=False, default=str, indent=2)}
