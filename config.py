@@ -45,6 +45,7 @@ FLUJOS = {
     "FOTO":            "9",
     "BATCH_GEOLOGO":   "10",
     "REPORTE_SGS":     "11",
+    "GESTION_PERF":    "12",
 }
 
 # ── TIMEOUT DE SESIÓN (minutos) ───────────────────────────────
