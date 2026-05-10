@@ -472,15 +472,9 @@ def _enriquecer_batch(resultado, paso_anterior, sesion_id, remitente):
     return resultado
 
 def _menu_gestion_perf(remitente: str):
-    \"\"\"Envía submenú de gestión de perforación.\"\"\"
-    from main import enviar_mensaje
-    enviar_mensaje(remitente,
-        "💎 *GESTIÓN PERFORACIÓN DIAMANTINA*\\n\\n"
-        "¿Qué consulta necesitas?\\n\\n"
-        "  *1* — 📊 Consolidado del turno\\n"
-        "  *2* — 🔍 Sondajes activos\\n"
-        "  *3* — 📈 Métricas del turno\\n"
-    )
+    """Envía submenú de gestión de perforación."""
+    from whatsapp_interactivo import menu_gestion_perforacion
+    menu_gestion_perforacion(remitente)
     return {"tipo": "interactivo"}
 
 def _enriquecer_certimin(resultado, paso, remitente):
