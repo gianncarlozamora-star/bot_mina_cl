@@ -92,14 +92,15 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         sid = crear_sesion(usuario["id"], FLUJOS["MATRICULA"])
         return mod_matricula.iniciar_anulacion(usuario, sid)
 
-    if accion == "anular_sgs" or any(w in msg_limpio.lower() for w in (
+    if accion == "anular_sgs" or any(w in mensaje.lower() for w in (
             "borrar logueo", "anular logueo", "borrar muestreo",
             "anular muestreo", "borrar registro sgs",
             "corregir reporte sgs", "eliminar registro sgs")):
         sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
         return mod_anular_sgs.iniciar(usuario, sid)
  
-    if accion == "batch" or any(w in msg_limpio.lower() for w in (
+    
+    if accion == "batch" or any(w in mensaje.lower() for w in (
             "registrar batch", "nuevo batch", "crear batch",
             "batch fusion", "envío laboratorio", "envio laboratorio")):
         if rol not in {"GEOLOGO", "ADMIN"}:
