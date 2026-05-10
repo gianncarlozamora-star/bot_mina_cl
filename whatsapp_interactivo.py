@@ -272,6 +272,24 @@ def menu_etapas_sgs(telefono: str):
 
 
 
+
+def menu_empresa_perforacion(telefono: str):
+    """Lista para seleccionar empresa antes del consolidado."""
+    return lista(
+        telefono,
+        "Consolidado Perforacion Diamantina",
+        [{"items": [
+            {"id": "emp_explomin",      "titulo": "EXPLOMIN",
+             "desc": "DCAT-04, DCAT-06, DCAT-09, DCAT-14"},
+            {"id": "emp_explodrilling", "titulo": "EXPLODRILLING",
+             "desc": "LM-90-33, DCAT-28, DCAT-29"},
+            {"id": "emp_todas",         "titulo": "Todas las empresas",
+             "desc": "Consolidado general"},
+        ]}],
+        boton_texto="Seleccionar"
+    )
+
+
 def menu_gestion_perforacion(telefono: str):
     """Submenu de gestion de perforacion diamantina."""
     return lista(
