@@ -83,6 +83,18 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         sid = crear_sesion(usuario["id"], FLUJOS["BATCH_GEOLOGO"])
         return mod_batch_geologo.iniciar(usuario, sid)
 
+    # ── Historia tajo — acceso directo ────────────────────────
+    if msg_limpio.lower() in ("historia tajo", "historia del tajo",
+                               "reporte tajo", "excel tajo",
+                               "historia por tajo"):
+        cerrar_sesion(usuario["id"])
+        return _iniciar_historia_tajo(remitente, usuario)
+
+    # Viene de la lista interactiva (tajo__T-008)
+    if msg_limpio.startswith("tajo__"):
+        tajo_nombre = msg_limpio[6:].strip()
+        return _generar_y_entregar_tajo(tajo_nombre, usuario)
+
     # ── Submenú gestión perforación ───────────────────────────
     if msg_limpio.lower() in ("gestion perforacion", "gestión perforación"):
         cerrar_sesion(usuario["id"])
@@ -114,7 +126,6 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         return mod_gestion_perf.metricas_turno()
 
     # ── Consultas de pendientes — acceso directo pre-IA ───────
-    # Evita que la IA confunda "qué falta X" con flujo de registro
     _pendientes_frases = (
         "qué falta", "que falta", "falta modelar", "falta loguear",
         "falta muestrear", "falta estimar", "pendientes de",
@@ -123,7 +134,6 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         "atraso en", "brechas"
     )
     if any(f in msg_limpio.lower() for f in _pendientes_frases):
-        # Detectar etapa específica
         etapa = None
         if any(w in msg_limpio.lower() for w in ("loguear", "logueo")):
             etapa = "LOGUEO"
@@ -231,7 +241,6 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         return mod_certimin.iniciar(usuario, sid)
 
     # ── Modelamiento ──────────────────────────────────────────
-    # Guardia: frases de "qué falta" van a consulta_pendientes, no aquí
     _es_consulta_pendiente = any(w in mensaje.lower() for w in (
         "qué falta", "que falta", "falta modelar", "sin modelar",
         "pendiente", "atrasado", "brecha"
@@ -255,67 +264,57 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         return mod_reporte_sgs.iniciar(usuario, sid)
 
     # ══════════════════════════════════════════════════════════
-    # CONSULTAS — disponibles para todos los roles autorizados
+    # CONSULTAS
     # ══════════════════════════════════════════════════════════
 
-    # ── Consulta DDH completa ─────────────────────────────────
     if accion == "consulta_ddh":
         bhid = intent.get("bhid") or mensaje
         return mod_gerencia.consultar_ddh_completo(bhid, usuario)
 
-    # ── Consulta batch específico ─────────────────────────────
     if accion == "consulta_batch":
         numero_batch = intent.get("numero_batch") or mensaje
         return mod_gerencia.consultar_batch(numero_batch, usuario)
 
-    # ── Consulta tajo ─────────────────────────────────────────
     if accion == "consulta_tajo":
         tajo = intent.get("tajo") or mensaje
         return mod_gerencia.consultar_tajo(tajo, usuario)
 
-    # ── Consulta objetivo ─────────────────────────────────────
     if accion == "consulta_objetivo":
         objetivo = intent.get("objetivo") or mensaje
         return mod_gerencia.consultar_objetivo(objetivo, usuario)
 
-    # ── Consulta foto ─────────────────────────────────────────
     if accion == "consulta_foto":
-        bhid         = intent.get("bhid") or mensaje
-        filtro_foto  = intent.get("filtro_foto")  # perforacion | sgs | None
-        resultado    = mod_gerencia.consultar_foto(bhid, usuario,
-                                                    filtro_origen=filtro_foto)
+        bhid        = intent.get("bhid") or mensaje
+        filtro_foto = intent.get("filtro_foto")
+        resultado   = mod_gerencia.consultar_foto(bhid, usuario,
+                                                   filtro_origen=filtro_foto)
         if isinstance(resultado, dict) and resultado.get("tipo") == "lista_fotos":
             menu_fotos(remitente, resultado["fotos"], resultado["bhid"])
             return {"tipo": "interactivo"}
         return resultado
 
-    # ── Consulta activos ──────────────────────────────────────
     if accion == "consulta_activos" or any(w in mensaje.lower() for w in (
             "sondajes activos", "qué máquinas perforan", "que maquinas perforan",
             "en curso perforación", "activos perforacion")):
         return mod_gerencia.sondajes_en_curso(usuario)
 
-    # ── Consulta semana ───────────────────────────────────────
     if accion == "consulta_semana" or any(w in mensaje.lower() for w in (
             "esta semana", "últimos 7 días", "ultimos 7 dias",
             "metros semana", "costo semana", "rendimiento semana")):
         return mod_gerencia.consultar_metros_semana(usuario)
 
-    # ── Consulta mes ──────────────────────────────────────────
     if accion == "consulta_mes" or any(w in mensaje.lower() for w in (
             "este mes", "del mes", "metros mes", "costo mes",
             "avance mensual", "lo que va del mes")):
         mes = intent.get("mes")
         return mod_gerencia.consultar_metros_mes(usuario, mes=mes)
 
-    # ── Ranking máquinas ──────────────────────────────────────
     if accion == "ranking_maquinas" or any(w in mensaje.lower() for w in (
             "ranking", "máquina más productiva", "maquina mas productiva",
             "cuál máquina", "cual maquina", "mejor máquina",
             "comparar máquinas")):
         return mod_gerencia.ranking_maquinas(usuario)
 
-    # ── Pendientes ────────────────────────────────────────────
     if accion == "consulta_pendientes" or any(w in mensaje.lower() for w in (
             "qué falta", "que falta", "pendientes", "atraso",
             "sin loguear", "sin muestrear", "sin modelar",
@@ -323,7 +322,6 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         etapa = intent.get("etapa_pendiente")
         return mod_gerencia.consultar_pendientes(etapa, usuario)
 
-    # ── SGS: activos, finalizados, pendientes logueo ──────────
     if accion in ("consulta_logueo_activos", "sgs_activos"):
         return mod_sgs.consultar_sondajes_activos_sgs()
 
@@ -333,7 +331,6 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
     if accion in ("consulta_pendiente_logueo", "sgs_pendientes"):
         return mod_sgs.consultar_pendientes_logueo()
 
-    # ── Gestión perforación ───────────────────────────────────
     if accion == "gestion_perforacion" or any(w in mensaje.lower() for w in (
             "gestión perforación", "gestion perforacion",
             "consolidado perforación", "ver consolidado")):
@@ -349,6 +346,18 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             "métricas turno", "metricas turno", "metros del turno",
             "cuánto se perforó hoy", "cuanto se perforo")):
         return mod_gestion_perf.metricas_turno()
+
+    # ── Historia tajo desde IA ────────────────────────────────
+    if accion == "historia_tajo" or any(w in mensaje.lower() for w in (
+            "historia tajo", "historia del tajo", "reporte tajo",
+            "excel tajo", "historia por tajo", "descargar tajo")):
+        if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
+            return "⛔ Solo geólogos, gerencia y admin pueden descargar este reporte."
+        # Si la IA extrajo el tajo directamente, generar sin preguntar
+        tajo_directo = intent.get("tajo")
+        if tajo_directo:
+            return _generar_y_entregar_tajo(tajo_directo, usuario)
+        return _iniciar_historia_tajo(remitente, usuario)
 
     # ── Resumen general ───────────────────────────────────────
     if accion == "resumen":
@@ -429,6 +438,9 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
     if flujo == FLUJOS["MODELAMIENTO"]:
         resultado = mod_modelamiento.procesar(mensaje, usuario, sesion)
         return _enriquecer_modelamiento(resultado, paso, sid, remitente)
+
+    if flujo == FLUJOS["HISTORIA_TAJO"]:
+        return _procesar_historia_tajo(mensaje, usuario, sesion, remitente)
 
     if flujo == "9":  # Selección de foto
         return mod_gerencia.consultar_foto(mensaje, usuario, sesion)
@@ -590,7 +602,107 @@ def _enriquecer_consolidado(resultado, paso_anterior, sesion_id, remitente):
 
 
 # ══════════════════════════════════════════════════════════════
-# HELPERS
+# HISTORIA TAJO — helpers
+# ══════════════════════════════════════════════════════════════
+
+def _iniciar_historia_tajo(remitente: str, usuario: dict):
+    """Muestra la lista de tajos disponibles o pide que escriba el nombre."""
+    from reportes.exportar import listar_tajos_disponibles
+    from db.sesiones import actualizar_sesion
+
+    rol = usuario["rol"]
+    if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
+        return "⛔ Solo geólogos, gerencia y admin pueden descargar este reporte."
+
+    tajos = listar_tajos_disponibles()
+    if not tajos:
+        return "⚠️ No hay tajos con sondajes activos en este momento."
+
+    sid = crear_sesion(usuario["id"], FLUJOS["HISTORIA_TAJO"])
+    actualizar_sesion(sid, "esperando_tajo",
+                      {"tajos_disponibles": [t["tajo"] for t in tajos]})
+
+    _menu_seleccion_tajo_wa(remitente, tajos)
+    return {"tipo": "interactivo"}
+
+
+def _menu_seleccion_tajo_wa(remitente: str, tajos: list):
+    """Envía lista interactiva de tajos (máx 10)."""
+    items = [
+        {
+            "id":    f"tajo_{t['tajo'].replace(' ', '_')[:30]}",
+            "titulo": t["tajo"][:24],
+            "desc":  f"{t['total']} DDH | {t['metros']:,.0f} m perf."
+        }
+        for t in tajos[:10]
+    ]
+    lista(
+        remitente,
+        "📋 *Historia por Tajo*\n\n"
+        "Selecciona el tajo de la lista o escribe su nombre directamente:",
+        [{"titulo": "Tajos activos", "items": items}],
+        boton_texto="Ver tajos"
+    )
+
+
+def _procesar_historia_tajo(mensaje: str, usuario: dict,
+                             sesion: dict, remitente: str):
+    """Maneja la sesión HISTORIA_TAJO: recibe el nombre y genera el Excel."""
+    from reportes.exportar import listar_tajos_disponibles
+
+    paso  = sesion["paso"]
+    datos = sesion["datos"]
+
+    if paso == "esperando_tajo":
+        tajo_input = mensaje.strip()
+        tajos_disponibles = datos.get("tajos_disponibles", [])
+
+        # Buscar coincidencia parcial (case-insensitive)
+        match = next(
+            (t for t in tajos_disponibles
+             if tajo_input.upper() in t.upper() or t.upper() in tajo_input.upper()),
+            None
+        )
+
+        if not match:
+            # Si no hay match sugerir similares por primera letra
+            sugerencias = [t for t in tajos_disponibles
+                           if tajo_input and tajo_input[0].upper() == t[0].upper()][:3]
+            sug_str = "\n".join(f"  • {s}" for s in sugerencias)
+            return (
+                f"❓ No encontré el tajo *{tajo_input}*.\n\n"
+                + (f"Quizás quisiste decir:\n{sug_str}\n\n" if sug_str else "")
+                + "Escribe el nombre exacto o toca *hola* para ver la lista."
+            )
+
+        cerrar_sesion(usuario["id"])
+        return _generar_y_entregar_tajo(match, usuario)
+
+    cerrar_sesion(usuario["id"])
+    return "❓ Paso no reconocido. Escribe *hola* para reiniciar."
+
+
+def _generar_y_entregar_tajo(tajo: str, usuario: dict) -> str:
+    """Genera el Excel de historia del tajo y retorna el link de descarga."""
+    from reportes.exportar import generar_historia_tajo
+    from config import hora_peru
+
+    datos_excel = generar_historia_tajo(tajo)
+    if not datos_excel:
+        return (
+            f"⚠️ No encontré sondajes para el tajo *{tajo}*.\n"
+            f"Verifica el nombre e intenta de nuevo."
+        )
+
+    nombre = (
+        f"Historia_Tajo_{tajo.replace(' ', '_').replace('/', '-')}"
+        f"_{hora_peru().strftime('%d%m%Y')}.xlsx"
+    )
+    return _entregar_excel(datos_excel, nombre)
+
+
+# ══════════════════════════════════════════════════════════════
+# HELPERS GENERALES
 # ══════════════════════════════════════════════════════════════
 
 def _get_empresa_id(codigo: str):
