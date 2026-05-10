@@ -109,10 +109,8 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
                 {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
                 {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo, RQD..."},
-                {"id": "batch",       "titulo": "📦 Registrar batch",    "desc": "Batch Fusion → Certimin"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
-                {"id": "reporte_sgs", "titulo": "📋 Reporte SGS",       "desc": "Consolidado diario para geología"},
             ]
         },
         "PERFORISTA": {
@@ -146,11 +144,9 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
                 {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
                 {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo..."},
-                {"id": "batch",       "titulo": "📦 Registrar batch",    "desc": "Batch Fusion → Certimin"},
                 {"id": "certimin",    "titulo": "🧪 Certimin",           "desc": "Confirmar batch"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
-                {"id": "reporte_sgs", "titulo": "📋 Reporte SGS",    "desc": "Consolidado diario para geología"},
             ]
         },
         "GERENCIA": {
@@ -259,11 +255,11 @@ def menu_etapas_sgs(telefono: str):
             {
                 "titulo": "Gestión",
                 "items": [
-                    {"id": "anular_sgs", "titulo": "🗑️ Anular registro",
+                    {"id": "anular_sgs",   "titulo": "🗑️ Anular registro",
                      "desc": "Corregir un reporte SGS"},
-                    {"id": "batch",      "titulo": "📦 Registrar batch",
+                    {"id": "batch",        "titulo": "📦 Registrar batch",
                      "desc": "Batch Fusion → laboratorio"},
-                    {"id": "reporte_sgs", "titulo": "📋 Reporte diario",
+                    {"id": "reporte_sgs",  "titulo": "📋 Reporte diario",
                      "desc": "Consolidado SGS del día"},
                 ]
             }
