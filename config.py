@@ -46,6 +46,7 @@ FLUJOS = {
     "BATCH_GEOLOGO":   "10",  # nuevo — registrar batch Fusion
     "CONSOLIDADO_PERF": "12",  # nuevo — consolidado con empresa/turno/fecha
     "REPORTE_SGS":     "11",
+    "HISTORIA_TAJO":     "13",
 }
 
 # ── TIMEOUT DE SESIÓN (minutos) ───────────────────────────────
