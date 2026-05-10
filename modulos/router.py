@@ -23,6 +23,7 @@ import modulos.anular_sgs    as mod_anular_sgs
 import modulos.batch_geologo as mod_batch_geologo
 import modulos.reporte_sgs as mod_reporte_sgs
 import modulos.gestion_perforacion as mod_gestion_perf
+import modulos.consolidado_perf  as mod_consolidado_perf
 
 ROLES_MATRICULA   = {"GEOLOGO", "ADMIN"}
 ROLES_PERFORACION = {"PERFORISTA", "ADMIN"}
@@ -94,22 +95,17 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         return {"tipo": "interactivo"}
 
     if msg_limpio.lower().startswith("consolidado_emp_"):
-        # Viene de la selección de empresa: "consolidado_emp_explomin", etc.
-        from config import hora_peru
-        turno  = "NOCHE" if hora_peru().hour < 10 else "DIA"
-        codigo = msg_limpio.replace("consolidado_emp_", "").upper()
-        if codigo == "TODAS":
-            return mod_gestion_perf.consolidado_turno(turno=turno)
-        # Obtener empresa_id por código
-        from db.conexion import ejecutar as _ej
-        row = _ej(
-            "SELECT id FROM cat_empresas WHERE codigo = %s",
-            (codigo,), fetchone=True
-        )
-        empresa_id = row[0] if row else None
-        return mod_gestion_perf.consolidado_turno(
-            empresa_id=empresa_id, turno=turno
-        )
+        # Abre sesión para capturar turno y fecha
+        codigo = msg_limpio.replace("consolidado_emp_", "")
+        cerrar_sesion(usuario["id"])
+        sid = crear_sesion(usuario["id"], FLUJOS["CONSOLIDADO_PERF"])
+        from db.sesiones import actualizar_sesion as _act
+        _act(sid, "cons_turno", {
+            "empresa_id":     None if codigo == "todas" else _get_empresa_id(codigo),
+            "empresa_nombre": codigo.upper(),
+        })
+        botones_turno(remitente, f"Empresa: {codigo.upper()} | Qué turno?")
+        return {"tipo": "interactivo"}
 
     if msg_limpio.lower() == "sondajes activos":
         return mod_gestion_perf.sondajes_activos_perf()
@@ -344,6 +340,10 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
         resultado = mod_certimin.procesar(mensaje, usuario, sesion)
         return _enriquecer_certimin(resultado, paso, remitente)
         
+    if flujo == FLUJOS["CONSOLIDADO_PERF"]:
+        resultado = mod_consolidado_perf.procesar(mensaje, usuario, sesion)
+        return _enriquecer_consolidado(resultado, paso, sid, remitente)
+
     if flujo == FLUJOS["ANULAR_SGS"]:
         return mod_anular_sgs.procesar(mensaje, usuario, sesion)
 
@@ -506,6 +506,32 @@ def _enriquecer_batch(resultado, paso_anterior, sesion_id, remitente):
         return {"tipo": "interactivo"}
  
     return resultado
+
+def _get_empresa_id(codigo: str):
+    """Obtiene empresa_id por código (explomin, explodrilling)."""
+    from db.conexion import ejecutar as _ej
+    row = _ej(
+        "SELECT id FROM cat_empresas WHERE LOWER(codigo) = %s",
+        (codigo.lower(),), fetchone=True
+    )
+    return row[0] if row else None
+
+
+def _enriquecer_consolidado(resultado, paso_anterior, sesion_id, remitente):
+    from db.conexion import ejecutar as _ej
+    row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
+               (sesion_id,), fetchone=True)
+    paso_nuevo = row[0] if row else paso_anterior
+
+    if paso_nuevo == "cons_turno":
+        botones_turno(remitente)
+        return {"tipo": "interactivo"}
+
+    if paso_nuevo == "cons_fecha":
+        return resultado  # texto libre
+
+    return resultado
+
 
 def _menu_gestion_perf(remitente: str):
     """Envia submenu de gestion de perforacion."""
