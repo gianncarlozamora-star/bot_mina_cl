@@ -34,6 +34,7 @@ INTENCIONES VÁLIDAS:
 - consulta_tajo  → pregunta por sondajes de un tajo (T-XXX)
 - consulta_objetivo → pregunta por sondajes de un cuerpo/objetivo (OB1, etc.)
 - consulta_foto  → quiere ver una foto registrada de un sondaje
+- reporte_sgs → quiere generar el reporte consolidado diario SGS para enviar al área de geología. Frases: "generar reporte sgs","reporte diario", "reporte de hoy sgs", "consolidado sgs","reporte geologia"
 - anular_reporte   → quiere anular, borrar o eliminar su último reporte de perforación
 - consulta_activos → pregunta por sondajes activos, en perforación, en curso, qué máquinas están perforando, objetivos en perforación, avance actual por máquina
 - consulta_logueo_activos  → pregunta qué sondajes tienen logueo pendiente, activos sin loguear, cuánto falta loguear
