@@ -56,15 +56,16 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
     # abrir flujo SGS directamente con la etapa pre-cargada
     if usuario["rol"] in ROLES_SGS and msg_limpio in ("1","2","3","4","5") \
             and not obtener_sesion(usuario["id"]):
-        etapas_map = {"1":"LOGUEO","2":"MUESTREO","3":"RQD",
-                      "4":"FOTOGRAFIA","5":"DENSIDAD"}
-    etapa = etapas_map.get(msg_limpio)
-    if etapa:
-        cerrar_sesion(usuario["id"])
-        sid = crear_sesion(usuario["id"], FLUJOS["SGS"])
-        from db.sesiones import actualizar_sesion as _act
-        _act(sid, "sondaje_sgs", {"etapa": etapa})
-        return f"✅ Etapa: *{etapa}*\n\n¿Código del sondaje?\nEjemplo: 8422, PECLD08422\n"
+        _etapas_sgs_map = {"1":"LOGUEO","2":"MUESTREO","3":"RQD",
+                   "4":"FOTOGRAFIA","5":"DENSIDAD"}
+if usuario["rol"] in ROLES_SGS and msg_limpio in _etapas_sgs_map \
+        and not obtener_sesion(usuario["id"]):
+    _etapa = _etapas_sgs_map.get(msg_limpio)
+    cerrar_sesion(usuario["id"])
+    sid = crear_sesion(usuario["id"], FLUJOS["SGS"])
+    from db.sesiones import actualizar_sesion as _act
+    _act(sid, "sondaje_sgs", {"etapa": _etapa})
+    return f"✅ Etapa: *{_etapa}*\n\n¿Código del sondaje?\nEjemplo: 8422, PECLD08422\n"
 
     
     # ── Accesos directos desde menú interactivo ───────────────
