@@ -14,21 +14,23 @@ from whatsapp_interactivo import (
     menu_fotos, menu_descarga, botones, lista
 )
 
-import modulos.matricula    as mod_matricula
-import modulos.perforacion  as mod_perforacion
-import modulos.sgs          as mod_sgs
-import modulos.certimin     as mod_certimin
-import modulos.gerencia     as mod_gerencia
-import modulos.anular_sgs    as mod_anular_sgs
-import modulos.batch_geologo as mod_batch_geologo
-import modulos.reporte_sgs as mod_reporte_sgs
+import modulos.matricula       as mod_matricula
+import modulos.perforacion     as mod_perforacion
+import modulos.sgs             as mod_sgs
+import modulos.certimin        as mod_certimin
+import modulos.gerencia        as mod_gerencia
+import modulos.anular_sgs      as mod_anular_sgs
+import modulos.batch_geologo   as mod_batch_geologo
+import modulos.reporte_sgs     as mod_reporte_sgs
 import modulos.gestion_perforacion as mod_gestion_perf
-import modulos.consolidado_perf  as mod_consolidado_perf
+import modulos.consolidado_perf    as mod_consolidado_perf
+import modulos.modelamiento        as mod_modelamiento   # ← NUEVO
 
-ROLES_MATRICULA   = {"GEOLOGO", "ADMIN"}
-ROLES_PERFORACION = {"PERFORISTA", "ADMIN"}
-ROLES_SGS         = {"SGS", "ADMIN"}
-ROLES_CERTIMIN    = {"CERTIMIN", "ADMIN"}
+ROLES_MATRICULA    = {"GEOLOGO", "ADMIN"}
+ROLES_PERFORACION  = {"PERFORISTA", "ADMIN"}
+ROLES_SGS          = {"SGS", "ADMIN"}
+ROLES_CERTIMIN     = {"CERTIMIN", "ADMIN"}
+ROLES_MODELAMIENTO = {"GEOLOGO", "ADMIN"}               # ← NUEVO
 
 
 def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
@@ -49,10 +51,8 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         cerrar_sesion(usuario["id"])
         menu_principal_rol(remitente, usuario)
         return {"tipo": "interactivo"}
- 
+
     # ── Cambio de módulo desde interactivo (aunque haya sesión) ──
-    # Cuando el usuario toca un botón de menú que cambia de módulo,
-    # cerrar la sesión activa y abrir la nueva.
     if msg_limpio.lower() in ("anular sgs", "anular_sgs"):
         cerrar_sesion(usuario["id"])
         sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
@@ -67,13 +67,22 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         sid = crear_sesion(usuario["id"], FLUJOS["REPORTE_SGS"])
         return mod_reporte_sgs.iniciar(usuario, sid)
 
+    # ── Modelamiento — acceso directo desde menú ──────────────
+    if msg_limpio.lower() in ("modelamiento", "modelar", "estimar",
+                               "estimacion", "estimación",
+                               "modelamiento y estimacion"):
+        cerrar_sesion(usuario["id"])
+        rol = usuario["rol"]
+        if rol not in ROLES_MODELAMIENTO:
+            return "⛔ Solo los geólogos pueden registrar modelamiento."
+        sid = crear_sesion(usuario["id"], FLUJOS["MODELAMIENTO"])
+        return mod_modelamiento.iniciar(usuario, sid)
+
     # Respuestas al submenú de gestión perforación (sin sesión)
     sesion_check = obtener_sesion(usuario["id"])
     if not sesion_check and msg_limpio in ("1", "2", "3"):
-        # Puede ser respuesta al submenú de gestión
-        # Solo si el mensaje anterior fue el submenú — usar IA o ignorar
         pass  # El router normal lo manejará como número sin contexto
- 
+
     if msg_limpio.lower() in ("registrar batch", "batch"):
         cerrar_sesion(usuario["id"])
         rol = usuario["rol"]
@@ -95,7 +104,6 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         return {"tipo": "interactivo"}
 
     if msg_limpio.lower().startswith("consolidado_emp_"):
-        # Abre sesión para capturar turno y fecha
         codigo = msg_limpio.replace("consolidado_emp_", "")
         cerrar_sesion(usuario["id"])
         sid = crear_sesion(usuario["id"], FLUJOS["CONSOLIDADO_PERF"])
@@ -150,7 +158,7 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             for w in ("anular reporte", "borrar reporte", "eliminar reporte",
                       "borrar mi reporte", "anular mi reporte")):
         return _iniciar_anulacion_reporte(usuario)
-    
+
     if (accion == "anular" and accion != "anular_reporte") or any(w in mensaje.lower()
             for w in ("eliminar sondaje", "borrar sondaje")):
         if rol not in ROLES_MATRICULA:
@@ -164,8 +172,7 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             "corregir reporte sgs", "eliminar registro sgs")):
         sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
         return mod_anular_sgs.iniciar(usuario, sid)
- 
-    
+
     if accion == "batch" or any(w in mensaje.lower() for w in (
             "registrar batch", "nuevo batch", "crear batch",
             "batch fusion", "envío laboratorio", "envio laboratorio")):
@@ -202,6 +209,15 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         sid = crear_sesion(usuario["id"], FLUJOS["CERTIMIN"])
         return mod_certimin.iniciar(usuario, sid)
 
+    # ── MODELAMIENTO ─────────────────────────────────────────
+    if accion == "modelamiento" or any(w in mensaje.lower() for w in (
+            "modelamiento", "modelar", "estimar", "estimacion",
+            "estimación", "modelo corto plazo", "modelamiento y estimacion")):
+        if rol not in ROLES_MODELAMIENTO:
+            return "⛔ Solo los geólogos pueden registrar modelamiento."
+        sid = crear_sesion(usuario["id"], FLUJOS["MODELAMIENTO"])
+        return mod_modelamiento.iniciar(usuario, sid)
+
     if accion == "consulta_ddh":
         bhid = intent.get("bhid") or mensaje
         return mod_gerencia.consultar_ddh(bhid, usuario)
@@ -227,28 +243,29 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
 
     if accion in ("consulta_logueo_activos", "sgs_activos"):
         return mod_sgs.consultar_sondajes_activos_sgs()
- 
+
     if accion in ("consulta_finalizados", "sgs_finalizados"):
         return mod_sgs.consultar_finalizados_mes()
- 
+
     if accion in ("consulta_pendiente_logueo", "sgs_pendientes"):
         return mod_sgs.consultar_pendientes_logueo()
 
     if mensaje.lower() == "consolidado turno":
+        from config import hora_peru
         turno = "NOCHE" if hora_peru().hour < 10 else "DIA"
         return mod_gestion_perf.consolidado_turno(turno=turno)
- 
+
     if mensaje.lower() == "sondajes activos":
         return mod_gestion_perf.sondajes_activos_perf()
- 
+
     if mensaje.lower() == "metricas turno":
         return mod_gestion_perf.metricas_turno()
- 
+
     if mensaje.lower() in ("gestión perforación", "gestion perforacion"):
         from whatsapp_interactivo import menu_gestion_perforacion
         menu_gestion_perforacion(remitente)
         return {"tipo": "interactivo"}
-    
+
     if accion == "reporte_sgs" or any(w in mensaje.lower() for w in (
             "reporte sgs", "generar reporte sgs", "reporte diario sgs",
             "reporte geologia", "consolidado sgs")):
@@ -257,31 +274,27 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         sid = crear_sesion(usuario["id"], FLUJOS["REPORTE_SGS"])
         return mod_reporte_sgs.iniciar(usuario, sid)
 
-
     if accion == "gestion_perforacion" or any(w in mensaje.lower() for w in (
             "gestión perforación", "gestion perforacion",
             "consolidado perforación", "consolidado perforacion",
             "ver consolidado", "reporte perforación", "reporte perforacion")):
-        # Submenú de gestión — sin sesión, responde directo
         return _menu_gestion_perf(remitente)
- 
+
     if accion == "activos_perforacion" or any(w in mensaje.lower() for w in (
             "sondajes activos", "qué máquinas perforan", "que maquinas perforan",
             "en curso perforación", "activos perforacion")):
         return mod_gestion_perf.sondajes_activos_perf()
- 
+
     if accion == "metricas_turno" or any(w in mensaje.lower() for w in (
             "métricas turno", "metricas turno", "metros del turno",
             "cuánto se perforó", "cuanto se perforo")):
         return mod_gestion_perf.metricas_turno()
- 
+
     if accion == "consolidado_turno" or any(w in mensaje.lower() for w in (
             "consolidado turno", "reporte consolidado", "consolidado dia",
             "consolidado noche")):
         turno = "NOCHE" if "noche" in mensaje.lower() else None
         return mod_gestion_perf.consolidado_turno(turno=turno)
-
-    
 
     if accion == "resumen":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
@@ -339,7 +352,7 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
     if flujo == FLUJOS["CERTIMIN"]:
         resultado = mod_certimin.procesar(mensaje, usuario, sesion)
         return _enriquecer_certimin(resultado, paso, remitente)
-        
+
     if flujo == FLUJOS["CONSOLIDADO_PERF"]:
         resultado = mod_consolidado_perf.procesar(mensaje, usuario, sesion)
         return _enriquecer_consolidado(resultado, paso, sid, remitente)
@@ -350,12 +363,17 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
     if flujo == FLUJOS["BATCH_GEOLOGO"]:
         resultado = mod_batch_geologo.procesar(mensaje, usuario, sesion)
         return _enriquecer_batch(resultado, paso, sid, remitente)
-    
+
     if flujo == FLUJOS["REPORTE_SGS"]:
         return mod_reporte_sgs.procesar(mensaje, usuario, sesion)
-    
+
     if flujo == FLUJOS["DESCARGA_EXCEL"]:
         return _procesar_descarga(mensaje, usuario, sesion)
+
+    # ── MODELAMIENTO ─────────────────────────────────────────
+    if flujo == FLUJOS["MODELAMIENTO"]:
+        resultado = mod_modelamiento.procesar(mensaje, usuario, sesion)
+        return _enriquecer_modelamiento(resultado, paso, sid, remitente)
 
     if flujo == "9":  # Selección de foto
         return mod_gerencia.consultar_foto(mensaje, usuario, sesion)
@@ -366,8 +384,6 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
 
 
 # ── ENRICHERS ─────────────────────────────────────────────────
-# Leen el paso NUEVO de BD (después de que el módulo lo actualizó)
-# y envían el interactivo correspondiente.
 
 def _enriquecer_matricula(resultado, paso_anterior, sesion_id, remitente):
     from db.conexion import ejecutar as _ej
@@ -375,22 +391,18 @@ def _enriquecer_matricula(resultado, paso_anterior, sesion_id, remitente):
                (sesion_id,), fetchone=True)
     paso_nuevo = row[0] if row else paso_anterior
 
-    # Pasos de anulación — pasar directo sin interceptar
     if paso_anterior in ("anular_buscar", "anular_confirmar") or \
        paso_nuevo    in ("anular_buscar", "anular_confirmar"):
         return resultado
 
-    # Menú ya enviado por el router
     if resultado is None:
         return {"tipo": "interactivo"}
 
-    # labor completado → mostrar botones de diámetro
     if paso_nuevo == "diametro":
         _enviar_texto(remitente, resultado)
         menu_diametro(remitente)
         return {"tipo": "interactivo"}
 
-    # diámetro completado → mostrar lista de máquinas
     if paso_nuevo == "maquina":
         _enviar_texto(remitente, resultado)
         from db.usuarios import obtener_maquinas_activas
@@ -398,16 +410,13 @@ def _enriquecer_matricula(resultado, paso_anterior, sesion_id, remitente):
         menu_maquinas(remitente, maquinas, "¿Qué máquina perfora este sondaje?")
         return {"tipo": "interactivo"}
 
-    # máquina completada → código DDH (texto libre, no interceptar)
     if paso_nuevo == "codigo_ddh":
         return resultado
 
-    # confirmación → botones confirmar/cancelar
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
 
-    # reutilizar BHID anulado → botones sí/no
     if paso_nuevo == "reutilizar_bhid":
         botones_si_no(remitente, resultado)
         return {"tipo": "interactivo"}
@@ -435,7 +444,6 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
-      
     if paso_nuevo == "maquina":
         from db.usuarios import obtener_maquinas_activas
         maquinas = obtener_maquinas_activas()
@@ -443,78 +451,92 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
         return {"tipo": "interactivo"}
     return resultado
 
+
 def _enriquecer_sgs(resultado, paso_anterior, sesion_id, remitente):
     from db.conexion import ejecutar as _ej
     row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
                (sesion_id,), fetchone=True)
     paso_nuevo = row[0] if row else paso_anterior
- 
-    # ── LOGUEO ────────────────────────────────────────────────
+
     if paso_nuevo == "foto_logueo":
         botones(remitente,
                 "📸 ¿Adjuntar foto del tramo logueado?\\n"
                 "Envía la imagen ahora o presiona No.",
                 ["No"])
         return {"tipo": "interactivo"}
- 
+
     if paso_nuevo == "confirmacion_logueo" and isinstance(resultado, str) \
             and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
- 
+
     if paso_nuevo == "confirmar_fin_logueo":
         botones_si_no(remitente, resultado)
         return {"tipo": "interactivo"}
- 
-    # ── MUESTREO ──────────────────────────────────────────────
+
     if paso_nuevo == "confirmacion_muestreo" and isinstance(resultado, str) \
             and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
- 
-    # ── DENSIDAD ──────────────────────────────────────────────
+
     if paso_nuevo == "confirmacion_densidad" and isinstance(resultado, str) \
             and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
- 
-    # ── GENÉRICO (RQD, Fotografía) ────────────────────────────
+
     if paso_nuevo == "foto_opcional":
         botones(remitente,
                 "📸 ¿Adjuntar foto del tramo?\\n"
                 "Envía la imagen o presiona No.",
                 ["No"])
         return {"tipo": "interactivo"}
- 
+
     if paso_nuevo == "confirmacion_generica" and isinstance(resultado, str) \
             and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
- 
-    # Texto libre en todos los demás pasos
+
     return resultado
+
 
 def _enriquecer_batch(resultado, paso_anterior, sesion_id, remitente):
     from db.conexion import ejecutar as _ej
     row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
                (sesion_id,), fetchone=True)
     paso_nuevo = row[0] if row else paso_anterior
- 
+
     if paso_nuevo == "batch_confirmacion" and isinstance(resultado, str) \
             and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
- 
+
     return resultado
 
-def _get_empresa_id(codigo: str):
-    """Obtiene empresa_id por código (explomin, explodrilling)."""
+
+def _enriquecer_certimin(resultado, paso, remitente):
+    if isinstance(resultado, str) and "¿Confirmas?" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+    if isinstance(resultado, str) and "¿Qué quieres confirmar?" in resultado:
+        botones(remitente, resultado, ["📦 Recepción", "📊 Resultados"])
+        return {"tipo": "interactivo"}
+    return resultado
+
+
+def _enriquecer_modelamiento(resultado, paso_anterior, sesion_id, remitente):
+    """Enricher para el flujo de modelamiento y estimación."""
     from db.conexion import ejecutar as _ej
-    row = _ej(
-        "SELECT id FROM cat_empresas WHERE LOWER(codigo) = %s",
-        (codigo.lower(),), fetchone=True
-    )
-    return row[0] if row else None
+    row = _ej("SELECT paso_actual FROM sesiones_bot WHERE id = %s",
+               (sesion_id,), fetchone=True)
+    paso_nuevo = row[0] if row else paso_anterior
+
+    # Confirmación final → botones sí/no
+    if paso_nuevo == "mod_confirmacion" and isinstance(resultado, str) \
+            and "RESUMEN" in resultado:
+        botones_confirmar(remitente, resultado)
+        return {"tipo": "interactivo"}
+
+    return resultado
 
 
 def _enriquecer_consolidado(resultado, paso_anterior, sesion_id, remitente):
@@ -528,25 +550,24 @@ def _enriquecer_consolidado(resultado, paso_anterior, sesion_id, remitente):
         return {"tipo": "interactivo"}
 
     if paso_nuevo == "cons_fecha":
-        return resultado  # texto libre
+        return resultado
 
     return resultado
+
+
+def _get_empresa_id(codigo: str):
+    from db.conexion import ejecutar as _ej
+    row = _ej(
+        "SELECT id FROM cat_empresas WHERE LOWER(codigo) = %s",
+        (codigo.lower(),), fetchone=True
+    )
+    return row[0] if row else None
 
 
 def _menu_gestion_perf(remitente: str):
-    """Envia submenu de gestion de perforacion."""
     from whatsapp_interactivo import menu_gestion_perforacion
     menu_gestion_perforacion(remitente)
     return {"tipo": "interactivo"}
-
-def _enriquecer_certimin(resultado, paso, remitente):
-    if isinstance(resultado, str) and "¿Confirmas?" in resultado:
-        botones_confirmar(remitente, resultado)
-        return {"tipo": "interactivo"}
-    if isinstance(resultado, str) and "¿Qué quieres confirmar?" in resultado:
-        botones(remitente, resultado, ["📦 Recepción", "📊 Resultados"])
-        return {"tipo": "interactivo"}
-    return resultado
 
 
 # ── DESCARGA ──────────────────────────────────────────────────
@@ -556,7 +577,7 @@ def _procesar_descarga(mensaje, usuario, sesion):
     from reportes.exportar import generar_avance_diario, generar_estado_sondajes
     from config import hora_peru as _hora
 
-    paso = sesion["paso"]
+    paso  = sesion["paso"]
     datos = sesion["datos"]
     sid   = sesion["id"]
     msg   = mensaje.strip()
@@ -612,7 +633,6 @@ def _entregar_excel(datos_bytes, nombre):
 
 
 def _enviar_texto(remitente, texto):
-    """Envía un mensaje de texto simple (helper interno)."""
     if not texto:
         return
     try:
@@ -623,31 +643,28 @@ def _enviar_texto(remitente, texto):
 
 
 def _iniciar_anulacion_reporte(usuario: dict) -> str:
-    """Inicia el flujo de anulación del último reporte de perforación."""
     from db.conexion import ejecutar as _ej
     from db.sesiones import crear_sesion, actualizar_sesion
     rol = usuario["rol"]
 
     if rol == "PERFORISTA":
-        # Solo puede anular su propio último reporte
         row = _ej(
             """SELECT ap.id, s.bhid, ap.fecha, ap.turno,
                       ap.prof_inicio, ap.prof_final
                FROM avance_perforacion ap
                JOIN sondajes s ON ap.sondaje_id = s.id
                JOIN cat_maquinas m ON ap.maquina_id = m.id
-               WHERE ap.reportado_por = %s AND ap.estado = \'ACTIVO\'
+               WHERE ap.reportado_por = %s AND ap.estado = 'ACTIVO'
                ORDER BY ap.id DESC LIMIT 1""",
             (usuario["id"],), fetchone=True
         )
     else:
-        # ADMIN y GEOLOGO ven el último reporte global
         row = _ej(
             """SELECT ap.id, s.bhid, ap.fecha, ap.turno,
                       ap.prof_inicio, ap.prof_final
                FROM avance_perforacion ap
                JOIN sondajes s ON ap.sondaje_id = s.id
-               WHERE ap.estado = \'ACTIVO\'
+               WHERE ap.estado = 'ACTIVO'
                ORDER BY ap.id DESC LIMIT 1""",
             fetchone=True
         )
