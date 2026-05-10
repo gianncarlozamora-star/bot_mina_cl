@@ -1,15 +1,12 @@
 """
 MENSAJES INTERACTIVOS DE WHATSAPP
 Botones (hasta 3) y Listas (hasta 10 opciones).
-Uso:
-    from whatsapp_interactivo import botones, lista, enviar_interactivo
 """
 import requests
 from config import ACCESS_TOKEN, WA_API_URL
 
 
 def enviar_interactivo(telefono: str, payload: dict):
-    """Envía cualquier mensaje interactivo a WhatsApp."""
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type":  "application/json"
@@ -33,15 +30,11 @@ def enviar_interactivo(telefono: str, payload: dict):
 
 def botones(telefono: str, cuerpo: str, opciones: list,
             encabezado: str = None, pie: str = None):
-    """
-    Envía mensaje con botones (máximo 3).
-    opciones: lista de strings, ej: ["Sí", "No", "Cancelar"]
-    """
-    opciones = opciones[:3]  # máximo 3
+    opciones = opciones[:3]
     buttons  = [
         {"type": "reply", "reply": {
             "id":    f"btn_{i}_{op.lower()[:20].replace(' ','_')}",
-            "title": op[:20]  # máximo 20 chars
+            "title": op[:20]
         }}
         for i, op in enumerate(opciones)
     ]
@@ -58,17 +51,12 @@ def botones(telefono: str, cuerpo: str, opciones: list,
         }
     if pie:
         payload["interactive"]["footer"] = {"text": pie[:60]}
-
     return enviar_interactivo(telefono, payload)
 
 
 def lista(telefono: str, cuerpo: str, secciones: list,
           boton_texto: str = "Ver opciones",
           encabezado: str = None, pie: str = None):
-    """
-    Envía mensaje con lista desplegable (máximo 10 items total).
-    secciones: [{"titulo": "Grupo", "items": [{"id": "x", "titulo": "Y", "desc": "Z"}]}]
-    """
     rows_total = sum(len(s.get("items", [])) for s in secciones)
     assert rows_total <= 10, "Máximo 10 items en lista"
 
@@ -103,7 +91,6 @@ def lista(telefono: str, cuerpo: str, secciones: list,
         }
     if pie:
         payload["interactive"]["footer"] = {"text": pie[:60]}
-
     return enviar_interactivo(telefono, payload)
 
 
@@ -119,9 +106,10 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "cuerpo": f"Hola *{nombre}* 👷\n¿Qué deseas hacer?",
             "opciones_lista": [
                 {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Registrar nuevo sondaje"},
-                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular por error"},
+                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
                 {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
                 {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo, RQD..."},
+                {"id": "batch",       "titulo": "📦 Registrar batch",    "desc": "Batch Fusion → Certimin"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
             ]
@@ -136,11 +124,12 @@ def menu_principal_rol(telefono: str, usuario: dict):
         "SGS": {
             "cuerpo": f"Hola *{nombre}* 🔬\n¿Qué actividad reportas?",
             "opciones_lista": [
-                {"id": "sgs_logueo",     "titulo": "📝 Logueo",      "desc": "Registro geológico"},
-                {"id": "sgs_muestreo",   "titulo": "🧪 Muestreo",    "desc": "Toma de muestras"},
-                {"id": "sgs_rqd",        "titulo": "📐 RQD",         "desc": "Calidad de roca"},
-                {"id": "sgs_fotografia", "titulo": "📸 Fotografía",  "desc": "Fotos de testigos"},
-                {"id": "sgs_densidad",   "titulo": "⚖️ Densidad",    "desc": "Control de densidad"},
+                {"id": "sgs_logueo",     "titulo": "📝 Logueo",          "desc": "Registro geológico"},
+                {"id": "sgs_muestreo",   "titulo": "🧪 Muestreo",        "desc": "Toma de muestras"},
+                {"id": "sgs_rqd",        "titulo": "📐 RQD",             "desc": "Calidad de roca"},
+                {"id": "sgs_fotografia", "titulo": "📸 Fotografía",      "desc": "Fotos de testigos"},
+                {"id": "sgs_densidad",   "titulo": "⚖️ Densidad",        "desc": "Control de densidad"},
+                {"id": "anular_sgs",     "titulo": "🗑️ Anular registro", "desc": "Corregir un reporte SGS"},
             ]
         },
         "CERTIMIN": {
@@ -149,14 +138,14 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "certimin", "titulo": "📦 Confirmar batch", "desc": "Recepción o resultados"},
             ]
         },
-
         "ADMIN": {
             "cuerpo": f"Hola *{nombre}* 🔧\n¿Qué deseas hacer?",
             "opciones_lista": [
                 {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Nuevo sondaje"},
-                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular por error"},
+                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
                 {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
                 {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo..."},
+                {"id": "batch",       "titulo": "📦 Registrar batch",    "desc": "Batch Fusion → Certimin"},
                 {"id": "certimin",    "titulo": "🧪 Certimin",           "desc": "Confirmar batch"},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
@@ -185,7 +174,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
                      boton_texto="Ver opciones")
 
 
-def menu_maquinas(telefono: str, maquinas: list, 
+def menu_maquinas(telefono: str, maquinas: list,
                   texto: str = "¿Con qué máquina trabajas?"):
     from main import enviar_mensaje
     lineas = [f"*{texto}*\n"]
@@ -201,7 +190,8 @@ def botones_turno(telefono: str, texto: str = "¿Qué turno reportas?"):
 
 def botones_confirmar(telefono: str, texto: str, pie: str = None):
     from main import enviar_mensaje
-    enviar_mensaje(telefono, texto + "\n\n✅ Responde *sí* para confirmar o *no* para cancelar.")
+    enviar_mensaje(telefono,
+                   texto + "\n\n✅ Responde *sí* para confirmar o *no* para cancelar.")
 
 
 def botones_si_no(telefono: str, texto: str):
@@ -211,7 +201,9 @@ def botones_si_no(telefono: str, texto: str):
 
 def botones_si_no_fin(telefono: str, texto: str):
     from main import enviar_mensaje
-    enviar_mensaje(telefono, texto + "\n\n  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar")
+    enviar_mensaje(telefono,
+                   texto + "\n\n  *sí* — Generar\n  *no* — Otra máquina\n  *fin* — Terminar")
+
 
 def menu_tipo_sondaje(telefono: str):
     return lista(
@@ -237,22 +229,46 @@ def menu_diametro(telefono: str):
 
 
 def menu_etapas_sgs(telefono: str):
+    """
+    Menú SGS con 7 opciones:
+    - 5 etapas de reporte
+    - Anular registro SGS
+    - Registrar batch (para geólogos que usan SGS también)
+    """
     return lista(
         telefono,
         "¿Qué actividad vas a reportar?",
-        [{"items": [
-            {"id": "sgs_LOGUEO",     "titulo": "📝 Logueo",     "desc": "Registro geológico"},
-            {"id": "sgs_MUESTREO",   "titulo": "🧪 Muestreo",   "desc": "Toma de muestras"},
-            {"id": "sgs_RQD",        "titulo": "📐 RQD",        "desc": "Calidad de roca"},
-            {"id": "sgs_FOTOGRAFIA", "titulo": "📸 Fotografía", "desc": "Fotos de testigos"},
-            {"id": "sgs_DENSIDAD",   "titulo": "⚖️ Densidad",   "desc": "Control de densidad"},
-        ]}],
-        boton_texto="Seleccionar actividad"
+        [
+            {
+                "titulo": "Reportar",
+                "items": [
+                    {"id": "sgs_LOGUEO",     "titulo": "📝 Logueo",
+                     "desc": "Registro geológico"},
+                    {"id": "sgs_MUESTREO",   "titulo": "🧪 Muestreo",
+                     "desc": "Toma de muestras"},
+                    {"id": "sgs_RQD",        "titulo": "📐 RQD",
+                     "desc": "Calidad de roca"},
+                    {"id": "sgs_FOTOGRAFIA", "titulo": "📸 Fotografía",
+                     "desc": "Fotos de testigos"},
+                    {"id": "sgs_DENSIDAD",   "titulo": "⚖️ Densidad",
+                     "desc": "Control de densidad"},
+                ]
+            },
+            {
+                "titulo": "Gestión",
+                "items": [
+                    {"id": "anular_sgs", "titulo": "🗑️ Anular registro",
+                     "desc": "Corregir un reporte SGS"},
+                    {"id": "batch",      "titulo": "📦 Registrar batch",
+                     "desc": "Batch Fusion → laboratorio"},
+                ]
+            }
+        ],
+        boton_texto="Seleccionar"
     )
 
 
 def menu_fotos(telefono: str, fotos: list, bhid: str):
-    """Lista de fotos disponibles para un sondaje."""
     items = [
         {
             "id":     f"foto_{i}",
@@ -274,11 +290,11 @@ def menu_descarga(telefono: str):
         telefono,
         "¿Qué reporte necesitas descargar?",
         [{"items": [
-            {"id": "desc_avance",   "titulo": "📊 Avance diario",
+            {"id": "desc_avance", "titulo": "📊 Avance diario",
              "desc": "Mes actual en Excel"},
-            {"id": "desc_estado",   "titulo": "📋 Estado sondajes",
+            {"id": "desc_estado", "titulo": "📋 Estado sondajes",
              "desc": "Todos los DDH"},
-            {"id": "desc_mes",      "titulo": "📅 Mes específico",
+            {"id": "desc_mes",    "titulo": "📅 Mes específico",
              "desc": "Elige el mes"},
         ]}],
         boton_texto="Seleccionar reporte"
