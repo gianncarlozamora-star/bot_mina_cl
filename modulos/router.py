@@ -46,6 +46,22 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         cerrar_sesion(usuario["id"])
         menu_principal_rol(remitente, usuario)
         return {"tipo": "interactivo"}
+ 
+    # ── Cambio de módulo desde interactivo (aunque haya sesión) ──
+    # Cuando el usuario toca un botón de menú que cambia de módulo,
+    # cerrar la sesión activa y abrir la nueva.
+    if msg_limpio.lower() in ("anular sgs", "anular_sgs"):
+        cerrar_sesion(usuario["id"])
+        sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
+        return mod_anular_sgs.iniciar(usuario, sid)
+ 
+    if msg_limpio.lower() in ("registrar batch", "batch"):
+        cerrar_sesion(usuario["id"])
+        rol = usuario["rol"]
+        if rol not in {"GEOLOGO", "ADMIN"}:
+            return "⛔ Solo los geólogos pueden registrar batches."
+        sid = crear_sesion(usuario["id"], FLUJOS["BATCH_GEOLOGO"])
+        return mod_batch_geologo.iniciar(usuario, sid)
 
     # ── Sesión activa → continuar flujo ───────────────────────
     sesion = obtener_sesion(usuario["id"])
