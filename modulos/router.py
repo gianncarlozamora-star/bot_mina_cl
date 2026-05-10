@@ -113,6 +113,30 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
     if msg_limpio.lower() == "metricas turno":
         return mod_gestion_perf.metricas_turno()
 
+    # ── Consultas de pendientes — acceso directo pre-IA ───────
+    # Evita que la IA confunda "qué falta X" con flujo de registro
+    _pendientes_frases = (
+        "qué falta", "que falta", "falta modelar", "falta loguear",
+        "falta muestrear", "falta estimar", "pendientes de",
+        "sin modelar", "sin loguear", "sin muestrear", "sin estimar",
+        "sin leyes", "qué está atrasado", "que esta atrasado",
+        "atraso en", "brechas"
+    )
+    if any(f in msg_limpio.lower() for f in _pendientes_frases):
+        # Detectar etapa específica
+        etapa = None
+        if any(w in msg_limpio.lower() for w in ("loguear", "logueo")):
+            etapa = "LOGUEO"
+        elif any(w in msg_limpio.lower() for w in ("muestrear", "muestreo")):
+            etapa = "MUESTREO"
+        elif any(w in msg_limpio.lower() for w in ("modelar", "modelado", "modelamiento")):
+            etapa = "MODELADO"
+        elif any(w in msg_limpio.lower() for w in ("estimar", "estimacion", "estimación")):
+            etapa = "ESTIMACION"
+        elif any(w in msg_limpio.lower() for w in ("laboratorio", "leyes", "analizar")):
+            etapa = "LABORATORIO"
+        return mod_gerencia.consultar_pendientes(etapa, usuario)
+
     # ── Sesión activa → continuar flujo ───────────────────────
     sesion = obtener_sesion(usuario["id"])
     if sesion:
@@ -207,9 +231,15 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         return mod_certimin.iniciar(usuario, sid)
 
     # ── Modelamiento ──────────────────────────────────────────
-    if accion == "modelamiento" or any(w in mensaje.lower() for w in (
+    # Guardia: frases de "qué falta" van a consulta_pendientes, no aquí
+    _es_consulta_pendiente = any(w in mensaje.lower() for w in (
+        "qué falta", "que falta", "falta modelar", "sin modelar",
+        "pendiente", "atrasado", "brecha"
+    ))
+    if not _es_consulta_pendiente and (
+            accion == "modelamiento" or any(w in mensaje.lower() for w in (
             "modelamiento", "modelar", "estimacion", "estimación",
-            "modelo corto plazo", "modelamiento y estimacion")):
+            "modelo corto plazo", "modelamiento y estimacion"))):
         if rol not in ROLES_MODELAMIENTO:
             return "⛔ Solo los geólogos pueden registrar modelamiento."
         sid = crear_sesion(usuario["id"], FLUJOS["MODELAMIENTO"])
