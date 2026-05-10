@@ -81,6 +81,24 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         sid = crear_sesion(usuario["id"], FLUJOS["BATCH_GEOLOGO"])
         return mod_batch_geologo.iniciar(usuario, sid)
 
+    # ── Submenú gestión perforación (globales, antes de sesión) ──
+    if msg_limpio.lower() in ("gestion perforacion", "gestión perforación"):
+        cerrar_sesion(usuario["id"])
+        from whatsapp_interactivo import menu_gestion_perforacion
+        menu_gestion_perforacion(remitente)
+        return {"tipo": "interactivo"}
+
+    if msg_limpio.lower() == "consolidado turno":
+        from config import hora_peru
+        turno = "NOCHE" if hora_peru().hour < 10 else "DIA"
+        return mod_gestion_perf.consolidado_turno(turno=turno)
+
+    if msg_limpio.lower() == "sondajes activos":
+        return mod_gestion_perf.sondajes_activos_perf()
+
+    if msg_limpio.lower() == "metricas turno":
+        return mod_gestion_perf.metricas_turno()
+
     # ── Sesión activa → continuar flujo ───────────────────────
     sesion = obtener_sesion(usuario["id"])
     if sesion:
