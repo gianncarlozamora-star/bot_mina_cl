@@ -22,6 +22,7 @@ import modulos.gerencia     as mod_gerencia
 import modulos.anular_sgs    as mod_anular_sgs
 import modulos.batch_geologo as mod_batch_geologo
 import modulos.reporte_sgs as mod_reporte_sgs
+import modulos.gestion_perforacion as mod_gestion_perf
 
 ROLES_MATRICULA   = {"GEOLOGO", "ADMIN"}
 ROLES_PERFORACION = {"PERFORISTA", "ADMIN"}
@@ -64,6 +65,13 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
             return "⛔ Solo los geólogos pueden generar el reporte SGS."
         sid = crear_sesion(usuario["id"], FLUJOS["REPORTE_SGS"])
         return mod_reporte_sgs.iniciar(usuario, sid)
+
+    # Respuestas al submenú de gestión perforación (sin sesión)
+    sesion_check = obtener_sesion(usuario["id"])
+    if not sesion_check and msg_limpio in ("1", "2", "3"):
+        # Puede ser respuesta al submenú de gestión
+        # Solo si el mensaje anterior fue el submenú — usar IA o ignorar
+        pass  # El router normal lo manejará como número sin contexto
  
     if msg_limpio.lower() in ("registrar batch", "batch"):
         cerrar_sesion(usuario["id"])
@@ -194,6 +202,21 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
     if accion in ("consulta_pendiente_logueo", "sgs_pendientes"):
         return mod_sgs.consultar_pendientes_logueo()
 
+    if mensaje.lower() == "consolidado turno":
+        turno = "NOCHE" if hora_peru().hour < 10 else "DIA"
+        return mod_gestion_perf.consolidado_turno(turno=turno)
+ 
+    if mensaje.lower() == "sondajes activos":
+        return mod_gestion_perf.sondajes_activos_perf()
+ 
+    if mensaje.lower() == "metricas turno":
+        return mod_gestion_perf.metricas_turno()
+ 
+    if mensaje.lower() in ("gestión perforación", "gestion perforacion"):
+        from whatsapp_interactivo import menu_gestion_perforacion
+        menu_gestion_perforacion(remitente)
+        return {"tipo": "interactivo"}
+    
     if accion == "reporte_sgs" or any(w in mensaje.lower() for w in (
             "reporte sgs", "generar reporte sgs", "reporte diario sgs",
             "reporte geologia", "consolidado sgs")):
@@ -201,6 +224,32 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
             return "⛔ Solo los geólogos pueden generar el reporte SGS."
         sid = crear_sesion(usuario["id"], FLUJOS["REPORTE_SGS"])
         return mod_reporte_sgs.iniciar(usuario, sid)
+
+
+    if accion == "gestion_perforacion" or any(w in mensaje.lower() for w in (
+            "gestión perforación", "gestion perforacion",
+            "consolidado perforación", "consolidado perforacion",
+            "ver consolidado", "reporte perforación", "reporte perforacion")):
+        # Submenú de gestión — sin sesión, responde directo
+        return _menu_gestion_perf(remitente)
+ 
+    if accion == "activos_perforacion" or any(w in mensaje.lower() for w in (
+            "sondajes activos", "qué máquinas perforan", "que maquinas perforan",
+            "en curso perforación", "activos perforacion")):
+        return mod_gestion_perf.sondajes_activos_perf()
+ 
+    if accion == "metricas_turno" or any(w in mensaje.lower() for w in (
+            "métricas turno", "metricas turno", "metros del turno",
+            "cuánto se perforó", "cuanto se perforo")):
+        return mod_gestion_perf.metricas_turno()
+ 
+    if accion == "consolidado_turno" or any(w in mensaje.lower() for w in (
+            "consolidado turno", "reporte consolidado", "consolidado dia",
+            "consolidado noche")):
+        turno = "NOCHE" if "noche" in mensaje.lower() else None
+        return mod_gestion_perf.consolidado_turno(turno=turno)
+
+    
 
     if accion == "resumen":
         if rol not in {"GERENCIA", "GEOLOGO", "ADMIN"}:
@@ -350,15 +399,7 @@ def _enriquecer_perforacion(resultado, paso_anterior, sesion_id, remitente):
     if paso_nuevo == "confirmacion" and isinstance(resultado, str) and "RESUMEN" in resultado:
         botones_confirmar(remitente, resultado)
         return {"tipo": "interactivo"}
-    if paso_nuevo == "reporte_empresa" and paso_anterior != "reporte_empresa":
-        botones_si_no_fin(remitente, "¿Generar reporte consolidado de tu empresa?")
-        return {"tipo": "interactivo"}
-    if paso_nuevo == "post_consolidado" and paso_anterior != "post_consolidado":
-        if isinstance(resultado, str) and resultado.strip():
-            _enviar_texto(remitente, resultado)
-        botones_si_no(remitente, "¿Registrar otra máquina?")
-        return {"tipo": "interactivo"}
-        
+      
     if paso_nuevo == "maquina":
         from db.usuarios import obtener_maquinas_activas
         maquinas = obtener_maquinas_activas()
@@ -430,9 +471,17 @@ def _enriquecer_batch(resultado, paso_anterior, sesion_id, remitente):
  
     return resultado
 
-
-
-
+def _menu_gestion_perf(remitente: str):
+    \"\"\"Envía submenú de gestión de perforación.\"\"\"
+    from main import enviar_mensaje
+    enviar_mensaje(remitente,
+        "💎 *GESTIÓN PERFORACIÓN DIAMANTINA*\\n\\n"
+        "¿Qué consulta necesitas?\\n\\n"
+        "  *1* — 📊 Consolidado del turno\\n"
+        "  *2* — 🔍 Sondajes activos\\n"
+        "  *3* — 📈 Métricas del turno\\n"
+    )
+    return {"tipo": "interactivo"}
 
 def _enriquecer_certimin(resultado, paso, remitente):
     if isinstance(resultado, str) and "¿Confirmas?" in resultado:
