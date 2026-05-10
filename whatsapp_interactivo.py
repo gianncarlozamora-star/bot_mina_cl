@@ -126,11 +126,11 @@ def menu_principal_rol(telefono: str, usuario: dict):
         "SGS": {
             "cuerpo": f"Hola *{nombre}* 🔬\n¿Qué actividad reportas?",
             "opciones_lista": [
-                {"id": "sgs_logueo",     "titulo": "📝 Logueo",           "desc": "Registro geológico"},
-                {"id": "sgs_muestreo",   "titulo": "🧪 Muestreo",         "desc": "Toma de muestras"},
-                {"id": "sgs_rqd",        "titulo": "📐 RQD",              "desc": "Calidad de roca"},
-                {"id": "sgs_fotografia", "titulo": "📸 Fotografía",       "desc": "Fotos de testigos"},
-                {"id": "sgs_densidad",   "titulo": "⚖️ Densidad",         "desc": "Control de densidad"},
+                {"id": "sgs_LOGUEO",     "titulo": "📝 Logueo",           "desc": "Registro geológico"},
+                {"id": "sgs_MUESTREO",   "titulo": "🧪 Muestreo",         "desc": "Toma de muestras"},
+                {"id": "sgs_RQD",        "titulo": "📐 RQD",              "desc": "Calidad de roca"},
+                {"id": "sgs_FOTOGRAFIA", "titulo": "📸 Fotografía",       "desc": "Fotos de testigos"},
+                {"id": "sgs_DENSIDAD",   "titulo": "⚖️ Densidad",         "desc": "Control de densidad"},
                 {"id": "anular_sgs",     "titulo": "🗑️ Anular registro",  "desc": "Corregir un reporte SGS"},
             ]
         },
