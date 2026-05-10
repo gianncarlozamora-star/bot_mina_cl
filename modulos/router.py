@@ -472,7 +472,7 @@ def _enriquecer_batch(resultado, paso_anterior, sesion_id, remitente):
     return resultado
 
 def _menu_gestion_perf(remitente: str):
-    """Envía submenú de gestión de perforación."""
+    """Envia submenu de gestion de perforacion."""
     from whatsapp_interactivo import menu_gestion_perforacion
     menu_gestion_perforacion(remitente)
     return {"tipo": "interactivo"}
