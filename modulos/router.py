@@ -89,9 +89,27 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
         return {"tipo": "interactivo"}
 
     if msg_limpio.lower() == "consolidado turno":
+        from whatsapp_interactivo import menu_empresa_perforacion
+        menu_empresa_perforacion(remitente)
+        return {"tipo": "interactivo"}
+
+    if msg_limpio.lower().startswith("consolidado_emp_"):
+        # Viene de la selección de empresa: "consolidado_emp_explomin", etc.
         from config import hora_peru
-        turno = "NOCHE" if hora_peru().hour < 10 else "DIA"
-        return mod_gestion_perf.consolidado_turno(turno=turno)
+        turno  = "NOCHE" if hora_peru().hour < 10 else "DIA"
+        codigo = msg_limpio.replace("consolidado_emp_", "").upper()
+        if codigo == "TODAS":
+            return mod_gestion_perf.consolidado_turno(turno=turno)
+        # Obtener empresa_id por código
+        from db.conexion import ejecutar as _ej
+        row = _ej(
+            "SELECT id FROM cat_empresas WHERE codigo = %s",
+            (codigo,), fetchone=True
+        )
+        empresa_id = row[0] if row else None
+        return mod_gestion_perf.consolidado_turno(
+            empresa_id=empresa_id, turno=turno
+        )
 
     if msg_limpio.lower() == "sondajes activos":
         return mod_gestion_perf.sondajes_activos_perf()
