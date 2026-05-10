@@ -107,7 +107,8 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "opciones_lista": [
                 {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Registrar nuevo sondaje"},
                 {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matrícula DDH"},
-                {"id": "perforacion", "titulo": "⛏️ Avance perforación", "desc": "Reporte de turno"},
+                {"id": "perforacion",  "titulo": "💎 Perforación DDH",      "desc": "Registrar avance"},
+                {"id": "gestion_perf", "titulo": "📊 Gestión Perforación",  "desc": "Consolidado y activos"}    
                 {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo, RQD..."},
                 {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
                 {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
@@ -118,6 +119,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "opciones_lista": [
                 {"id": "perforacion", "titulo": "⛏️ Reportar avance",   "desc": "Reporte de turno"},
                 {"id": "consulta",    "titulo": "🔍 Consultar sondaje", "desc": "Estado de un DDH"},
+                {"id": "gestion_perf", "titulo": "📊 Ver consolidado",      "desc": "Estado del turno"},
             ]
         },
         "SGS": {
