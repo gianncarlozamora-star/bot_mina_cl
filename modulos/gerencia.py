@@ -389,7 +389,9 @@ def consultar_metros_mes(usuario: dict, mes: int = None, anio: int = None) -> st
 
 def ranking_maquinas(usuario: dict, dias: int = 30) -> str:
     """Ranking de productividad por máquina en los últimos N días."""
-    rol  = usuario.get("rol", "")
+    from datetime import timedelta
+    rol         = usuario.get("rol", "")
+    fecha_desde = (hora_peru() - timedelta(days=dias)).strftime("%Y-%m-%d")
     rows = ejecutar(
         """SELECT m.codigo, e.nombre,
                   SUM(ap.prof_final - ap.prof_inicio) as metros,
@@ -401,11 +403,11 @@ def ranking_maquinas(usuario: dict, dias: int = 30) -> str:
            JOIN cat_maquinas m ON ap.maquina_id = m.id
            JOIN cat_empresas e ON m.empresa_id = e.id
            JOIN sondajes s ON ap.sondaje_id = s.id
-           WHERE ap.fecha >= CURRENT_DATE - INTERVAL '%s days'
+           WHERE ap.fecha >= %s
              AND ap.estado = 'ACTIVO'
            GROUP BY m.codigo, e.nombre, m.sufijo_tarifa
            ORDER BY metros DESC""",
-        (dias,), fetchall=True
+        (fecha_desde,), fetchall=True
     ) or []
 
     if not rows:
