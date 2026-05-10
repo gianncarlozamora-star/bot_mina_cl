@@ -241,30 +241,33 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
         return etapas_map.get(etapa, etapa)
 
     # Acciones del menú principal
+     # Submenú gestión perforación
+    gp_map = {
+        "gp_consolidado": "consolidado turno",
+        "gp_activos":     "sondajes activos",
+        "gp_metricas":    "metricas turno",
+    }
+    if item_id in gp_map:
+        return gp_map[item_id]
+ 
     acciones_menu = {
-        "matricula": "matricular", "perforacion": "perforacion",
-        "sgs": "sgs", "certimin": "certimin", "resumen": "resumen",
-        "descarga": "descargar", "tajo": "consultar tajo",
-        "objetivo": "consultar objetivo", "consulta": "estado",
-        "anular": "anular sondaje", "batch":"registrar batch",
-        "anular_sgs":  "anular sgs", "reporte_sgs": "reporte sgs",
+        "matricula":   "matricular",
+        "perforacion": "perforacion",
+        "sgs":         "sgs",
+        "certimin":    "certimin",
+        "resumen":     "resumen",
+        "descarga":    "descargar",
+        "tajo":        "consultar tajo",
+        "objetivo":    "consultar objetivo",
+        "consulta":    "estado",
+        "anular":      "anular sondaje",
+        "batch":       "registrar batch",
+        "anular_sgs":  "anular sgs",
+        "reporte_sgs": "reporte sgs",
+        "gestion_perf": "gestion perforacion",
     }
     if item_id in acciones_menu:
         return acciones_menu[item_id]
-
-    # Fotos: foto_0, foto_1, etc.
-    if item_id.startswith("foto_"):
-        try:
-            return str(int(item_id.replace("foto_", "")) + 1)
-        except:
-            pass
-
-    # Descargas
-    desc_map = {
-        "desc_avance": "1", "desc_estado": "2", "desc_mes": "3"
-    }
-    if item_id in desc_map:
-        return desc_map[item_id]
 
     # Fallback: usar el título directamente
     return titulo
