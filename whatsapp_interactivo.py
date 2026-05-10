@@ -105,32 +105,33 @@ def menu_principal_rol(telefono: str, usuario: dict):
         "GEOLOGO": {
             "cuerpo": f"Hola *{nombre}* 👷\n¿Qué deseas hacer?",
             "opciones_lista": [
-                {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Registrar nuevo sondaje"},
-                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matricula DDH"},
-                {"id": "perforacion", "titulo": "Perforacion Diamantina","desc": "Registrar avance turno"},
-                {"id": "gestion_perf","titulo": "Gestion Perforacion",  "desc": "Consolidado y activos"},
-                {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo, RQD"},
-                {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
-                {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
+                {"id": "matricula",      "titulo": "📋 Matricular DDH",     "desc": "Registrar nuevo sondaje"},
+                {"id": "anular",         "titulo": "🗑️ Anular sondaje",     "desc": "Anular matricula DDH"},
+                {"id": "perforacion",    "titulo": "Perforacion Diamantina", "desc": "Registrar avance turno"},
+                {"id": "gestion_perf",   "titulo": "Gestion Perforacion",   "desc": "Consolidado y activos"},
+                {"id": "sgs",            "titulo": "🔬 Reporte SGS",         "desc": "Logueo, muestreo, RQD"},
+                {"id": "modelamiento",   "titulo": "🗂️ Modelamiento",        "desc": "Modelar y estimar DDH"},
+                {"id": "resumen",        "titulo": "📊 Resumen general",     "desc": "KPIs y avances"},
+                {"id": "descarga",       "titulo": "📥 Descargar Excel",     "desc": "Exportar reportes"},
             ]
         },
         "PERFORISTA": {
             "cuerpo": f"Hola *{nombre}* ⛏️\n¿Qué deseas hacer?",
             "opciones_lista": [
-                {"id": "perforacion", "titulo": "Perforacion Diamantina","desc": "Registrar avance"},
-                {"id": "gestion_perf","titulo": "Ver consolidado",       "desc": "Estado del turno"},
-                {"id": "consulta",    "titulo": "🔍 Consultar sondaje",  "desc": "Estado de un DDH"},
+                {"id": "perforacion", "titulo": "Perforacion Diamantina", "desc": "Registrar avance"},
+                {"id": "gestion_perf","titulo": "Ver consolidado",        "desc": "Estado del turno"},
+                {"id": "consulta",    "titulo": "🔍 Consultar sondaje",   "desc": "Estado de un DDH"},
             ]
         },
         "SGS": {
             "cuerpo": f"Hola *{nombre}* 🔬\n¿Qué actividad reportas?",
             "opciones_lista": [
-                {"id": "sgs_logueo",     "titulo": "📝 Logueo",          "desc": "Registro geológico"},
-                {"id": "sgs_muestreo",   "titulo": "🧪 Muestreo",        "desc": "Toma de muestras"},
-                {"id": "sgs_rqd",        "titulo": "📐 RQD",             "desc": "Calidad de roca"},
-                {"id": "sgs_fotografia", "titulo": "📸 Fotografía",      "desc": "Fotos de testigos"},
-                {"id": "sgs_densidad",   "titulo": "⚖️ Densidad",        "desc": "Control de densidad"},
-                {"id": "anular_sgs",     "titulo": "🗑️ Anular registro", "desc": "Corregir un reporte SGS"},
+                {"id": "sgs_logueo",     "titulo": "📝 Logueo",           "desc": "Registro geológico"},
+                {"id": "sgs_muestreo",   "titulo": "🧪 Muestreo",         "desc": "Toma de muestras"},
+                {"id": "sgs_rqd",        "titulo": "📐 RQD",              "desc": "Calidad de roca"},
+                {"id": "sgs_fotografia", "titulo": "📸 Fotografía",       "desc": "Fotos de testigos"},
+                {"id": "sgs_densidad",   "titulo": "⚖️ Densidad",         "desc": "Control de densidad"},
+                {"id": "anular_sgs",     "titulo": "🗑️ Anular registro",  "desc": "Corregir un reporte SGS"},
             ]
         },
         "CERTIMIN": {
@@ -142,14 +143,15 @@ def menu_principal_rol(telefono: str, usuario: dict):
         "ADMIN": {
             "cuerpo": f"Hola *{nombre}* 🔧\n¿Qué deseas hacer?",
             "opciones_lista": [
-                {"id": "matricula",   "titulo": "📋 Matricular DDH",    "desc": "Nuevo sondaje"},
-                {"id": "anular",      "titulo": "🗑️ Anular sondaje",    "desc": "Anular matricula DDH"},
-                {"id": "perforacion", "titulo": "Perforacion Diamantina","desc": "Registrar avance"},
-                {"id": "gestion_perf","titulo": "Gestion Perforacion",  "desc": "Consolidado y activos"},
-                {"id": "sgs",         "titulo": "🔬 Reporte SGS",        "desc": "Logueo, muestreo"},
-                {"id": "certimin",    "titulo": "🧪 Certimin",           "desc": "Confirmar batch"},
-                {"id": "resumen",     "titulo": "📊 Resumen general",    "desc": "KPIs y avances"},
-                {"id": "descarga",    "titulo": "📥 Descargar Excel",    "desc": "Exportar reportes"},
+                {"id": "matricula",    "titulo": "📋 Matricular DDH",     "desc": "Nuevo sondaje"},
+                {"id": "anular",       "titulo": "🗑️ Anular sondaje",     "desc": "Anular matricula DDH"},
+                {"id": "perforacion",  "titulo": "Perforacion Diamantina", "desc": "Registrar avance"},
+                {"id": "gestion_perf", "titulo": "Gestion Perforacion",   "desc": "Consolidado y activos"},
+                {"id": "sgs",          "titulo": "🔬 Reporte SGS",         "desc": "Logueo, muestreo"},
+                {"id": "certimin",     "titulo": "🧪 Certimin",            "desc": "Confirmar batch"},
+                {"id": "modelamiento", "titulo": "🗂️ Modelamiento",        "desc": "Modelar y estimar DDH"},
+                {"id": "resumen",      "titulo": "📊 Resumen general",     "desc": "KPIs y avances"},
+                {"id": "descarga",     "titulo": "📥 Descargar Excel",     "desc": "Exportar reportes"},
             ]
         },
         "GERENCIA": {
@@ -165,6 +167,10 @@ def menu_principal_rol(telefono: str, usuario: dict):
 
     cfg = menus.get(rol, menus["GERENCIA"])
     items = cfg["opciones_lista"]
+
+    # WhatsApp lista: máximo 10 items
+    if len(items) > 10:
+        items = items[:10]
 
     if len(items) <= 3:
         return botones(telefono, cfg["cuerpo"],
@@ -230,12 +236,6 @@ def menu_diametro(telefono: str):
 
 
 def menu_etapas_sgs(telefono: str):
-    """
-    Menú SGS con 7 opciones:
-    - 5 etapas de reporte
-    - Anular registro SGS
-    - Registrar batch (para geólogos que usan SGS también)
-    """
     return lista(
         telefono,
         "¿Qué actividad vas a reportar?",
@@ -258,11 +258,11 @@ def menu_etapas_sgs(telefono: str):
             {
                 "titulo": "Gestión",
                 "items": [
-                    {"id": "anular_sgs",   "titulo": "🗑️ Anular registro",
+                    {"id": "anular_sgs",  "titulo": "🗑️ Anular registro",
                      "desc": "Corregir un reporte SGS"},
-                    {"id": "batch",        "titulo": "📦 Registrar batch",
+                    {"id": "batch",       "titulo": "📦 Registrar batch",
                      "desc": "Batch Fusion → laboratorio"},
-                    {"id": "reporte_sgs",  "titulo": "📋 Reporte diario",
+                    {"id": "reporte_sgs", "titulo": "📋 Reporte diario",
                      "desc": "Consolidado SGS del día"},
                 ]
             }
@@ -271,10 +271,7 @@ def menu_etapas_sgs(telefono: str):
     )
 
 
-
-
 def menu_empresa_perforacion(telefono: str):
-    """Lista para seleccionar empresa antes del consolidado."""
     return lista(
         telefono,
         "Consolidado Perforacion Diamantina",
@@ -291,16 +288,15 @@ def menu_empresa_perforacion(telefono: str):
 
 
 def menu_gestion_perforacion(telefono: str):
-    """Submenu de gestion de perforacion diamantina."""
     return lista(
         telefono,
         "Gestion Perforacion Diamantina",
         [{"items": [
             {"id": "gp_consolidado", "titulo": "Consolidado turno",
              "desc": "Reporte por empresa"},
-            {"id": "gp_activos",    "titulo": "Sondajes activos",
+            {"id": "gp_activos",     "titulo": "Sondajes activos",
              "desc": "En perforacion ahora"},
-            {"id": "gp_metricas",   "titulo": "Metricas del turno",
+            {"id": "gp_metricas",    "titulo": "Metricas del turno",
              "desc": "Metros y comparativo"},
         ]}],
         boton_texto="Ver opciones"
