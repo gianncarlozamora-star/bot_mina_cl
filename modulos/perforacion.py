@@ -83,13 +83,14 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         if not activo:
             return (
                 f"✅ Máquina: *{maq_cod}*\n\n"
-                f"⚠️ No tiene sondaje *EN CURSO* matriculado.\n"
-                f"Para matricular uno nuevo escribe *cancelar* y usa la opción Matricular.\n"
+                f"⚠️ No tiene sondajes matriculados.\n"
+                f"Para matricular uno escribe *cancelar* y usa la opción Matricular.\n"
             )
         return (
             f"✅ Máquina: *{maq_cod}*\n"
-            f"📌 Sondaje activo: *{activo['bhid']}* | {activo['objetivo']}\n"
-            f"   {activo['final_m']:.1f}/{activo['prog_m']:.1f} m\n\n"
+            f"📌 Sondaje: *{activo['bhid']}* | {activo['objetivo']}\n"
+            f"   {activo['final_m']:.1f}/{activo['prog_m']:.1f} m "
+            f"({'EN CURSO' if activo['estado'] == 'EN_CURSO' else 'PLANIFICADO'})\n\n"
             f"¿Cuál es el *código del sondaje*?\n"
             f"Ejemplo: 8422, PECLD08422\n"
         )
@@ -651,16 +652,18 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
 # ── HELPERS ───────────────────────────────────────────────────
 
 def _sondaje_activo_en_maquina(maquina_id: int) -> dict | None:
-    """Retorna el sondaje EN_CURSO de una máquina específica."""
+    """Retorna el sondaje EN_CURSO o PLANIFICADO de una máquina específica."""
     if not maquina_id:
         return None
     row = ejecutar(
         """SELECT s.bhid, s.profundidad_prog, s.profundidad_final,
-                  s.tajo_objetivo, s.cuerpo_objetivo
+                  s.tajo_objetivo, s.cuerpo_objetivo, s.estado_perforacion
            FROM sondajes s
            WHERE s.maquina_id = %s
-             AND s.estado_perforacion = 'EN_CURSO'
-           ORDER BY s.fecha_inicio_perf DESC LIMIT 1""",
+             AND s.estado_perforacion IN ('EN_CURSO', 'PLANIFICADO')
+           ORDER BY
+               CASE s.estado_perforacion WHEN 'EN_CURSO' THEN 1 ELSE 2 END,
+               s.fecha_inicio_perf DESC LIMIT 1""",
         (maquina_id,), fetchone=True
     )
     if not row:
@@ -670,6 +673,7 @@ def _sondaje_activo_en_maquina(maquina_id: int) -> dict | None:
         "prog_m":   float(row[1] or 0),
         "final_m":  float(row[2] or 0),
         "objetivo": row[3] or row[4] or "—",
+        "estado":   row[5],
     }
 
 def _msg_sondaje_ok(sondaje: dict) -> str:
