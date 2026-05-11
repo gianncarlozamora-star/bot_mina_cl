@@ -463,7 +463,7 @@ def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None,
                    SUM(CASE WHEN s.estado_perforacion = 'EN_CURSO' THEN 1 ELSE 0 END) as en_perf,
                    SUM(CASE WHEN s.estado_perforacion = 'FINALIZADO' THEN 1 ELSE 0 END) as finalizados
             FROM plan_tajos pt
-            LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) = UPPER(pt.tajo)
+            LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) LIKE '%' || UPPER(pt.tajo) || '%'
             WHERE pt.mes = %s AND pt.anio = %s AND pt.activo = TRUE
             {where_riesgo}
             GROUP BY pt.tajo, pt.riesgo, pt.tmh, pt.zn_pct, pt.nsr
@@ -577,7 +577,7 @@ def consultar_leyes_tajo(tajo: str, usuario: dict = None) -> str:
                   SUM(CASE WHEN s.estado_perforacion='EN_CURSO' THEN 1 ELSE 0 END) as en_perf,
                   SUM(CASE WHEN s.estado_perforacion='FINALIZADO' THEN 1 ELSE 0 END) as finalizados
            FROM plan_tajos pt
-           LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) = UPPER(pt.tajo)
+           LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) LIKE '%' || UPPER(pt.tajo) || '%'
            WHERE UPPER(pt.tajo) = UPPER(%s) AND pt.activo = TRUE
            GROUP BY pt.tajo, pt.nivel, pt.mes, pt.anio, pt.tipo_envio,
                     pt.tmh, pt.zn_pct, pt.pb_pct, pt.cu_pct, pt.ag_oz,
@@ -650,7 +650,7 @@ def tajos_criticos_sin_perforar(usuario: dict = None) -> str:
                   COUNT(s.id) as total_ddh,
                   SUM(CASE WHEN s.estado_perforacion='EN_CURSO' THEN 1 ELSE 0 END) as en_perf
            FROM plan_tajos pt
-           LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) = UPPER(pt.tajo)
+           LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) LIKE '%' || UPPER(pt.tajo) || '%'
            WHERE pt.mes = %s AND pt.anio = %s
              AND pt.activo = TRUE AND pt.riesgo = 'ALTO'
            GROUP BY pt.tajo, pt.tmh, pt.zn_pct, pt.nsr
