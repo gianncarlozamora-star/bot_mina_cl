@@ -618,8 +618,14 @@ def _pendientes_laboratorio() -> str:
 
 def consultar_tajo(tajo: str, usuario: dict) -> str:
     rows = sondajes_por_tajo(tajo)
+
+    # ── Leyes del plan (siempre buscar, independiente de si hay DDH) ──
+    leyes_str = _leyes_del_tajo_plan(tajo)
+
     if not rows:
-        return f"❌ No encontré sondajes para el tajo *{tajo}*."
+        if leyes_str:
+            return leyes_str
+        return f"❌ No encontré sondajes ni plan para el tajo *{tajo}*."
 
     total      = len(rows)
     perforados = sum(1 for r in rows if r[2] and float(r[2]) > 0)
@@ -636,7 +642,7 @@ def consultar_tajo(tajo: str, usuario: dict) -> str:
     if total > 15:
         detalle += f"  _...y {total-15} más_\n"
 
-    return (
+    resultado = (
         f"📋 *Tajo {tajo}* — {total} sondajes\n"
         f"{'─'*30}\n"
         f"⛏️ Perforados:  {perforados}/{total}\n"
@@ -648,10 +654,13 @@ def consultar_tajo(tajo: str, usuario: dict) -> str:
         f"{detalle}"
         f"📅 {fecha_hora_str()}"
     )
-  
-  leyes = _leyes_del_tajo_plan(tajo)
-    if leyes:
-      return resultado + "\n" + leyes
+
+    # Agregar leyes del plan si existen
+    if leyes_str:
+        resultado += "\n\n" + leyes_str
+
+    return resultado
+
 
 # ══════════════════════════════════════════════════════════════
 # CONSULTA POR OBJETIVO
@@ -780,20 +789,7 @@ def sondajes_en_curso(usuario: dict) -> str:
         f"📅 {fecha_hora_str()}"
     )
 
-def _leyes_del_tajo_plan(tajo: str) -> str:
-    from modulos.plan_tajos import consultar_leyes_tajo
-    try:
-        row = ejecutar(
-            """SELECT tajo FROM plan_tajos 
-               WHERE UPPER(tajo) LIKE '%' || UPPER(%s) || '%' 
-               AND activo = TRUE LIMIT 1""",
-            (tajo,), fetchone=True
-        )
-        if row:
-            return consultar_leyes_tajo(row[0])
-    except:
-        pass
-    return ""
+
 # ══════════════════════════════════════════════════════════════
 # CONSULTA DE FOTOS
 # ══════════════════════════════════════════════════════════════
@@ -909,6 +905,54 @@ def consulta_libre_gerencia(pregunta: str, usuario: dict) -> str:
 # ══════════════════════════════════════════════════════════════
 # HELPERS INTERNOS
 # ══════════════════════════════════════════════════════════════
+
+
+def _leyes_del_tajo_plan(tajo: str) -> str:
+    """
+    Busca las leyes del tajo en plan_tajos activo.
+    Usa LIKE para tolerar variaciones como T-023 vs T-023S
+    o tajo_objetivo completo como 1650_OB5B_T-023S.
+    """
+    try:
+        # Buscar match exacto primero, luego parcial
+        row = ejecutar(
+            """SELECT tajo, tmh, zn_pct, pb_pct, cu_pct, ag_oz, nsr,
+                      riesgo, mes, anio, nivel
+               FROM plan_tajos
+               WHERE (UPPER(tajo) = UPPER(%s)
+                  OR UPPER(tajo) LIKE '%%' || UPPER(%s) || '%%'
+                  OR UPPER(%s) LIKE '%%' || UPPER(tajo) || '%%')
+                 AND activo = TRUE
+               ORDER BY
+                   CASE WHEN UPPER(tajo) = UPPER(%s) THEN 1 ELSE 2 END,
+                   anio DESC, mes DESC
+               LIMIT 1""",
+            (tajo, tajo, tajo, tajo), fetchone=True
+        )
+        if not row:
+            return ""
+
+        tajo_n, tmh, zn, pb, cu, ag, nsr, riesgo_t, mes, anio, nivel = row
+        icono_r = {"ALTO": "🔴", "MEDIO": "🟡", "BAJO": "🟢"}
+        meses = {1:"enero",2:"febrero",3:"marzo",4:"abril",5:"mayo",
+                 6:"junio",7:"julio",8:"agosto",9:"septiembre",
+                 10:"octubre",11:"noviembre",12:"diciembre"}
+        nombre_mes = meses.get(int(mes or 0), str(mes))
+
+        return (
+            f"{'─'*30}\n"
+            f"📊 *Plan {nombre_mes.capitalize()} {anio}* | Nv.{nivel or '—'}\n"
+            f"{icono_r.get(riesgo_t,'⬜')} Riesgo: *{riesgo_t}*\n"
+            f"   TMH:    {float(tmh or 0):.1f} kt\n"
+            f"   Zn(%):  {float(zn  or 0):.3f}\n"
+            f"   Pb(%):  {float(pb  or 0):.3f}\n"
+            f"   Cu(%):  {float(cu  or 0):.3f}\n"
+            f"   Ag(oz): {float(ag  or 0):.3f}\n"
+            f"   NSR($): {float(nsr or 0):.0f}\n"
+        )
+    except Exception as e:
+        print(f"[GERENCIA] Error leyes plan: {e}")
+        return ""
 
 def _calcular_costo_sondaje(bhid: str) -> float | None:
     """Calcula el costo total de un sondaje usando cat_tarifas."""
