@@ -137,7 +137,16 @@ def webhook():
             media_id  = doc.get("id")
             extension = filename.split(".")[-1].lower() if "." in filename else ""
             print(f"   Documento: {filename}")
-            if media_id and extension in ("dxf", "pdf", "zip", "dwg"):
+            if media_id and extension == "csv":
+                # CSV para plan de tajos — procesar localmente
+                ruta_local = _descargar_media(media_id, filename)
+                if ruta_local:
+                    mensaje = f"[csv:{filename}]"
+                    _inyectar_csv_en_sesion(remitente, ruta_local)
+                else:
+                    mensaje = "error_descarga_csv"
+
+            elif media_id and extension in ("dxf", "pdf", "zip", "dwg"):
                 ruta_local = _descargar_media(media_id, filename)
                 if ruta_local:
                     doc_url = subir_archivo_cloudinary(ruta_local)
@@ -157,7 +166,7 @@ def webhook():
                 mensaje = f"[Documento: {filename}]"
                 enviar_mensaje(remitente,
                     f"📎 Archivo *{filename}* recibido pero no es un formato soportado.\n"
-                    f"Formatos válidos: DXF, PDF, ZIP, DWG")
+                    f"Formatos válidos: CSV (plan tajos), DXF, PDF, ZIP, DWG")
 
         else:
             enviar_mensaje(remitente,
@@ -265,6 +274,7 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
         "reporte_sgs":            "reporte sgs",
         "gestion_perf":           "gestion perforacion",
         "modelamiento":           "modelamiento",
+        "plan_tajos":             "cargar plan tajos",  # ← NUEVO
     }
 
     # Buscar ID directo
@@ -389,6 +399,30 @@ def _inyectar_archivo_en_sesion(remitente: str, url: str):
         print(f"   DXF inyectado en sesión: {url}")
     except Exception as e:
         print(f"❌ Error inyectando DXF: {e}")
+
+
+def _inyectar_csv_en_sesion(remitente: str, ruta_local: str):
+    """Guarda la ruta local del CSV en la sesión activa (plan_tajos)."""
+    try:
+        from db.usuarios import obtener_usuario
+        from db.sesiones import obtener_sesion
+        from db.conexion import ejecutar
+        import json
+        usuario = obtener_usuario(remitente)
+        if not usuario:
+            return
+        sesion = obtener_sesion(usuario["id"])
+        if not sesion:
+            return
+        datos = sesion.get("datos", {})
+        datos["csv_ruta_local"] = ruta_local
+        ejecutar(
+            "UPDATE sesiones_bot SET datos_parciales = %s WHERE id = %s",
+            (json.dumps(datos), sesion["id"])
+        )
+        print(f"   CSV inyectado en sesión: {ruta_local}")
+    except Exception as e:
+        print(f"❌ Error inyectando CSV: {e}")
 
 
 if __name__ == "__main__":
