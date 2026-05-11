@@ -120,8 +120,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
             "opciones_lista": [
                 {"id": "perforacion", "titulo": "Perforacion Diamantina", "desc": "Registrar avance"},
                 {"id": "gestion_perf","titulo": "Ver consolidado",        "desc": "Estado del turno"},
-                {"id": "consulta",    "titulo": "🔍 Consultar sondaje",   "desc": "Estado de un DDH"},
-            ]
+                            ]
         },
         "SGS": {
             "cuerpo": f"Hola *{nombre}* 🔬\n¿Qué actividad reportas?",
