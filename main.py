@@ -262,6 +262,8 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
     acciones_menu = {
         "matricula":    "matricular",
         "perforacion":  "perforacion",
+        "perforacion_diamantina": "perforacion",  # ← AGREGAR
+        "perforacion_diamanti":   "perforacion",  # ← AGREGAR (truncado 20 chars)
         "sgs":          "sgs",
         "certimin":     "certimin",
         "resumen":      "resumen",
