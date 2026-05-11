@@ -18,7 +18,6 @@ def _cloudinary_config():
 
 def subir_archivo_cloudinary(ruta_local: str, carpeta: str = "cerro_lindo_dxf",
                               resource_type: str = "raw") -> str | None:
-    """Sube cualquier archivo (DXF, PDF, etc.) a Cloudinary como raw."""
     try:
         api_key, api_secret, cloud_name = _cloudinary_config()
         if not cloud_name:
@@ -104,7 +103,6 @@ def webhook():
             print(f"   Msg: {mensaje}")
 
         elif tipo == "interactive":
-            # Respuesta de botón o lista
             interactive = msg_obj["interactive"]
             tipo_int    = interactive.get("type")
             if tipo_int == "button_reply":
@@ -112,7 +110,6 @@ def webhook():
                 mensaje = btn.get("title", "")
                 btn_id  = btn.get("id", "")
                 print(f"   Botón: {btn_id} = {mensaje}")
-                # Normalizar respuestas comunes
                 mensaje = _normalizar_interactivo(btn_id, mensaje)
             elif tipo_int == "list_reply":
                 item    = interactive["list_reply"]
@@ -149,7 +146,6 @@ def webhook():
                     except:
                         pass
                     if doc_url:
-                        # Inyectar en sesión activa como dxf_archivo_url
                         _inyectar_archivo_en_sesion(remitente, doc_url)
                         foto_url = doc_url
                         mensaje  = f"[dxf:{filename}]"
@@ -171,14 +167,12 @@ def webhook():
 
         respuesta = procesar(mensaje, remitente, foto_url)
 
-        # Manejar diferentes tipos de respuesta
         if isinstance(respuesta, dict):
             tipo_resp = respuesta.get("tipo")
             if tipo_resp == "imagen":
                 enviar_imagen(remitente, respuesta["url"],
                               respuesta.get("caption", ""))
             elif tipo_resp == "interactivo":
-                # El módulo ya envió el mensaje interactivo directamente
                 pass
         else:
             enviar_mensaje(remitente, str(respuesta))
@@ -195,31 +189,24 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
     """
     Convierte IDs de botones/listas a texto que los módulos entienden.
     """
-    # Botones de confirmación
+    # ── 1. Mapeo exacto (botones de confirmación, turno, diámetro) ──
     mapeo = {
-        # Confirmaciones
-        "btn_0_confirmar": "si",
-        "btn_1_cancelar":  "no",
-        "btn_0_sí":        "si",
-        "btn_1_no":        "no",
-        # Turno
-        "btn_0_☀️_día":   "1",
-        "btn_1_🌙_noche":  "2",
-        # Sí/No/Fin
-        "btn_0_sí":         "si",
-        "btn_1_otra_máquina": "no",
-        "btn_2_fin":        "fin",
-        # Diámetro
-        "btn_0_bq": "BQ",
-        "btn_1_nq": "NQ",
-        "btn_2_hq": "HQ",
+        "btn_0_confirmar":      "si",
+        "btn_1_cancelar":       "no",
+        "btn_0_sí":             "si",
+        "btn_1_no":             "no",
+        "btn_0_☀️_día":        "1",
+        "btn_1_🌙_noche":       "2",
+        "btn_1_otra_máquina":   "no",
+        "btn_2_fin":            "fin",
+        "btn_0_bq":             "BQ",
+        "btn_1_nq":             "NQ",
+        "btn_2_hq":             "HQ",
     }
-
-    # Normalizar por ID exacto
     if item_id in mapeo:
         return mapeo[item_id]
 
-    # Máquinas: maq_1, maq_2, etc.
+    # ── 2. Máquinas: maq_1, maq_2, etc. ──────────────────────────
     if item_id.startswith("maq_"):
         try:
             num = int(item_id.replace("maq_", ""))
@@ -227,11 +214,11 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
         except:
             pass
 
-    # Tipo sondaje: tipo_INFILL, tipo_IND_MED, etc.
+    # ── 3. Tipo sondaje: tipo_INFILL, tipo_IND_MED, etc. ─────────
     if item_id.startswith("tipo_"):
         return item_id.replace("tipo_", "")
 
-    # SGS desde menú principal: sgs_LOGUEO, sgs_MUESTREO, etc.
+    # ── 4. SGS: sgs_LOGUEO, sgs_MUESTREO, etc. ───────────────────
     if item_id.startswith("sgs_"):
         etapa = item_id.replace("sgs_", "").lower()
         etapas_map = {
@@ -240,7 +227,7 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
         }
         return etapas_map.get(etapa, etapa)
 
-    # Submenú gestión perforación
+    # ── 5. Submenú gestión perforación ───────────────────────────
     gp_map = {
         "gp_consolidado": "consolidado turno",
         "gp_activos":     "sondajes activos",
@@ -249,7 +236,7 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
     if item_id in gp_map:
         return gp_map[item_id]
 
-    # Selección de empresa para consolidado
+    # ── 6. Selección empresa consolidado ─────────────────────────
     emp_map = {
         "emp_explomin":      "consolidado_emp_explomin",
         "emp_explodrilling": "consolidado_emp_explodrilling",
@@ -257,20 +244,14 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
     }
     if item_id in emp_map:
         return emp_map[item_id]
-        
-    _item = item_id
-    if item_id.startswith("btn_"):
-        partes = item_id.split("_", 2)
-        if len(partes) == 3:
-            _item = partes[2]
-    if _item in acciones_menu:
-        return acciones_menu[_item]
-    
+
+    # ── 7. Acciones del menú principal ───────────────────────────
+    # IMPORTANTE: definir ANTES de usarlo
     acciones_menu = {
         "matricula":              "matricular",
         "perforacion":            "perforacion",
-        "perforacion_diamantina": "perforacion",
-        "perforacion_diamanti":   "perforacion",
+        "perforacion_diamantina": "perforacion",  # ID completo
+        "perforacion_diamanti":   "perforacion",  # truncado 20 chars
         "sgs":                    "sgs",
         "certimin":               "certimin",
         "resumen":                "resumen",
@@ -285,34 +266,39 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
         "gestion_perf":           "gestion perforacion",
         "modelamiento":           "modelamiento",
     }
-    # Strip prefijo btn_N_ antes de buscar
-    _item = item_id
+
+    # Buscar ID directo
+    if item_id in acciones_menu:
+        return acciones_menu[item_id]
+
+    # Buscar sin prefijo btn_N_ (ej: btn_0_perforacion_diamanti → perforacion_diamanti)
     if item_id.startswith("btn_"):
         partes = item_id.split("_", 2)
         if len(partes) == 3:
             _item = partes[2]
-    if _item in acciones_menu:
-        return acciones_menu[_item]
+            if _item in acciones_menu:
+                return acciones_menu[_item]
 
-    # Fotos: foto_0, foto_1, etc.
+    # ── 8. Fotos: foto_0, foto_1, etc. ───────────────────────────
     if item_id.startswith("foto_"):
         try:
             return str(int(item_id.replace("foto_", "")) + 1)
         except:
             pass
 
-    # Descargas
+    # ── 9. Descargas ─────────────────────────────────────────────
     desc_map = {
         "desc_avance": "1", "desc_estado": "2", "desc_mes": "3"
     }
     if item_id in desc_map:
         return desc_map[item_id]
 
+    # ── 10. Tajo ─────────────────────────────────────────────────
     if item_id.startswith("tajo_"):
         nombre_tajo = item_id.replace("tajo_", "").replace("_", " ")
         return f"tajo__{nombre_tajo}"
 
-    # Fallback: usar el título directamente
+    # ── Fallback: usar el título directamente ─────────────────────
     return titulo
 
 
@@ -324,11 +310,13 @@ def descargar_excel(nombre_archivo):
     return send_file(ruta, as_attachment=True, download_name=nombre_archivo,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+
 @app.route("/health")
 def health():
     from config import hora_peru
     return jsonify({"status": "ok", "sistema": "Cerro Lindo Bot",
                     "hora_pe": hora_peru().strftime("%d/%m/%Y %H:%M")})
+
 
 def enviar_mensaje(telefono: str, texto: str):
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -340,6 +328,7 @@ def enviar_mensaje(telefono: str, texto: str):
         print(f"   WA status: {r.status_code}")
     except Exception as e:
         print(f"❌ Error enviando: {e}")
+
 
 def enviar_imagen(telefono: str, url_imagen: str, caption: str = ""):
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -354,6 +343,7 @@ def enviar_imagen(telefono: str, url_imagen: str, caption: str = ""):
             enviar_mensaje(telefono, f"📸 {caption}\n{url_imagen}")
     except Exception as e:
         print(f"❌ Error enviando imagen: {e}")
+
 
 def _descargar_media(media_id: str, filename: str = None) -> str | None:
     try:
@@ -377,8 +367,8 @@ def _descargar_media(media_id: str, filename: str = None) -> str | None:
         print(f"❌ Error descargando media: {e}")
         return None
 
+
 def _inyectar_archivo_en_sesion(remitente: str, url: str):
-    """Guarda el URL del archivo en la sesión activa del usuario."""
     try:
         from db.usuarios import obtener_usuario
         from db.sesiones import obtener_sesion
