@@ -22,6 +22,7 @@ Analiza el mensaje y devuelve SOLO un JSON con esta estructura:
   "numero_batch": "<número batch si mencionan uno, ej: 7094>",
   "etapa_pendiente": "<logueo|muestreo|modelado|estimacion|laboratorio|null>",
   "filtro_foto": "<perforacion|sgs|null>",
+  "tajo_plan": "<código tajo del plan, ej: T-021>"
   "respuesta_libre": "<respuesta corta en español solo si intencion=desconocido>"
 }}
 
@@ -78,6 +79,18 @@ INTENCIONES VÁLIDAS:
 - gestion_perforacion → submenú gestión perforación (consolidado, activos, métricas)
 - consolidado_turno   → consolidado de turno por empresa
 - metricas_turno      → métricas del turno actual
+- plan_tajos          → cargar/subir el plan de tajos del mes (CSV de recursos)
+                        Frases: "cargar plan tajos", "subir plan", "plan de tajos",
+                        "nuevo plan mensual", "cargar plan mensual"
+- consulta_tajos_riesgo → consultar tajos de alto/medio riesgo del plan activo
+                        Frases: "tajos de alto riesgo", "tajos críticos",
+                        "tajos de riesgo alto", "qué tajos son de alto riesgo"
+- plan_mes            → resumen del plan de tajos del mes
+                        Frases: "plan de mayo", "plan del mes", "resumen del plan",
+                        "plan mensual", "qué tajos hay en el plan"
+- tajos_criticos      → tajos ALTO riesgo sin perforación activa
+                        Frases: "tajos sin perforar", "tajos urgentes",
+                        "críticos sin perforar", "qué tajos faltan perforar"
 - menu                → saludo, ayuda, menú, inicio, hola, opciones
 - desconocido         → no encaja en ninguna categoría anterior
 
