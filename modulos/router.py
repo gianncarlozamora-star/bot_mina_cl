@@ -504,7 +504,8 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
         return _procesar_descarga(mensaje, usuario, sesion)
 
     if flujo == FLUJOS["PLAN_TAJOS"]:
-        ruta_csv = datos.get("csv_ruta_local")
+        _datos = sesion.get("datos", {})
+        ruta_csv = _datos.get("csv_ruta_local")
         resultado = mod_plan_tajos.procesar(
             mensaje, usuario, sesion,
             archivo_local=ruta_csv if paso == "pt_csv" else None
