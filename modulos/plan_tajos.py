@@ -15,15 +15,13 @@ Tabla que escribe:
 CSV esperado (columnas mínimas):
   LAYERS, CLASS, TONNES, ZN, PB, CU, AGOZ, NSR25RES
   LAYERS formato: NIVEL_OREBODY_TAJO ej: 1550_OB1_T-021
+  TONNES en toneladas métricas (se convierte a kt internamente)
 """
 from db.sesiones import actualizar_sesion, cerrar_sesion
 from db.conexion import ejecutar
 from config import fecha_hora_str, hora_peru
 
 FLUJO = "PLAN_TAJOS"
-
-# CLASS a ignorar en el cálculo — ninguno, incluimos todo
-CLASS_IGNORAR = set()  # incluimos 0, 5 y todos
 
 MESES = {
     1:"enero", 2:"febrero", 3:"marzo", 4:"abril",
@@ -88,7 +86,7 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         return (
             f"✅ Tipo: *{datos['tipo_envio']}*\n\n"
             f"📎 Ahora envía el archivo *CSV* del reporte de tajos.\n"
-            f"_(El archivo debe tener columnas: LAYERS, CLASS, TONNES, ZN, PB, CU, AGOZ, NSR25RES)_\n"
+            f"_(Columnas requeridas: LAYERS, CLASS, TONNES, ZN, PB, CU, AGOZ, NSR25RES)_\n"
         )
 
     # ── Recepción del CSV ─────────────────────────────────────
@@ -98,7 +96,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                 "📎 Aún no recibí el archivo CSV.\n"
                 "Envíalo como documento adjunto desde WhatsApp."
             )
-        # Procesar el CSV
         return _procesar_csv(archivo_local, datos, sid, usuario)
 
     # ── Tajos de riesgo ALTO ──────────────────────────────────
@@ -110,7 +107,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             datos["tajos_alto"] = []
         else:
             ingresados = [t.strip().upper() for t in msg.replace(";", ",").split(",") if t.strip()]
-            # Validar que existan en el plan
             no_encontrados = [t for t in ingresados if t not in tajos_validos]
             if no_encontrados:
                 return (
@@ -120,8 +116,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             datos["tajos_alto"] = ingresados
 
         actualizar_sesion(sid, "pt_riesgo_medio", datos)
-
-        # Mostrar los que quedan (no son alto)
         restantes = [t for t in tajos_validos if t not in datos["tajos_alto"]]
         alto_str  = ", ".join(datos["tajos_alto"]) if datos["tajos_alto"] else "ninguno"
         return (
@@ -150,7 +144,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
                 )
             datos["tajos_medio"] = ingresados
 
-        # Resto = BAJO automáticamente
         tajos_bajo = [
             t for t in tajos_validos
             if t not in tajos_alto and t not in datos["tajos_medio"]
@@ -158,7 +151,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
         datos["tajos_bajo"] = tajos_bajo
         actualizar_sesion(sid, "pt_confirmar", datos)
 
-        # Calcular TMH por grupo
         tmh_alto  = _tmh_grupo(tajos_procesados, datos["tajos_alto"])
         tmh_medio = _tmh_grupo(tajos_procesados, datos["tajos_medio"])
         tmh_bajo  = _tmh_grupo(tajos_procesados, tajos_bajo)
@@ -173,11 +165,11 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             f"{'─'*28}\n"
             f"📅 {MESES[datos['mes']].capitalize()} {datos['anio']} — {datos['tipo_envio']}\n"
             f"{'─'*28}\n"
-            f"🔴 ALTO:  {len(datos['tajos_alto']):>3} tajos | {tmh_alto:>10,.0f} t\n"
-            f"🟡 MEDIO: {len(datos['tajos_medio']):>3} tajos | {tmh_medio:>10,.0f} t\n"
-            f"🟢 BAJO:  {len(tajos_bajo):>3} tajos | {tmh_bajo:>10,.0f} t\n"
+            f"🔴 ALTO:  {len(datos['tajos_alto']):>3} tajos | {tmh_alto:>8.1f} kt\n"
+            f"🟡 MEDIO: {len(datos['tajos_medio']):>3} tajos | {tmh_medio:>8.1f} kt\n"
+            f"🟢 BAJO:  {len(tajos_bajo):>3} tajos | {tmh_bajo:>8.1f} kt\n"
             f"{'─'*28}\n"
-            f"📦 TOTAL: {len(tajos_validos):>3} tajos | {tmh_total:>10,.0f} t\n"
+            f"📦 TOTAL: {len(tajos_validos):>3} tajos | {tmh_total:>8.1f} kt\n"
             f"{'─'*28}\n"
             f"¿Confirmas? (*sí* / *no*)\n"
         )
@@ -189,7 +181,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
             return "❌ Carga cancelada. Los datos no fueron guardados."
         if msg.lower() not in ("sí", "si", "ok", "yes", "s"):
             return "¿Confirmas? *sí* o *no*."
-
         return _guardar_plan(datos, usuario, sid)
 
     return "❓ Escribe *hola* para reiniciar."
@@ -200,7 +191,6 @@ def procesar(mensaje: str, usuario: dict, sesion: dict,
 # ══════════════════════════════════════════════════════════════
 
 def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
-    """Lee el CSV, agrupa por tajo, pondera leyes por TONNES."""
     try:
         import csv
         from collections import defaultdict
@@ -213,7 +203,6 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
 
         with open(ruta_local, newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            # Verificar columnas mínimas
             cols = [c.strip().upper() for c in (reader.fieldnames or [])]
             requeridas = {"LAYERS", "TONNES", "ZN", "PB", "CU", "AGOZ", "NSR25RES"}
             faltantes  = requeridas - set(cols)
@@ -221,7 +210,7 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
                 return (
                     f"❌ El CSV no tiene las columnas requeridas:\n"
                     f"Faltan: *{', '.join(faltantes)}*\n\n"
-                    f"Columnas encontradas: {', '.join(cols[:8])}...\n"
+                    f"Columnas encontradas: {', '.join(cols[:8])}\n"
                     f"Envía un CSV con el formato correcto."
                 )
 
@@ -234,8 +223,6 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
                     if not layers:
                         continue
 
-                    # Extraer tajo y nivel de LAYERS
-                    # Formato: NIVEL_OREBODY_TAJO ej: 1550_OB1_T-021
                     tajo, nivel = _extraer_tajo_nivel(layers)
                     if not tajo:
                         continue
@@ -250,7 +237,6 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
                     ag  = float(row.get("AGOZ",     0) or 0)
                     nsr = float(row.get("NSR25RES", 0) or 0)
 
-                    # Acumular ponderado por TONNES
                     t = tajos_raw[tajo]
                     t["zn"]     += zn  * tonnes
                     t["pb"]     += pb  * tonnes
@@ -273,7 +259,7 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
                 "Verifica que el archivo tenga filas con TONNES > 0."
             )
 
-        # Calcular leyes ponderadas finales
+        # Calcular leyes ponderadas — TMH = tonnes / 1000
         tajos_procesados = []
         for tajo, t in sorted(tajos_raw.items()):
             tonnes = t["tonnes"]
@@ -282,7 +268,7 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
             tajos_procesados.append({
                 "tajo":   tajo,
                 "nivel":  t["nivel"],
-                "tmh":    tonnes / 1000,  # toneladas métricas
+                "tmh":    tonnes / 1000,       # kt
                 "zn_pct": t["zn"]  / tonnes,
                 "pb_pct": t["pb"]  / tonnes,
                 "cu_pct": t["cu"]  / tonnes,
@@ -294,15 +280,13 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
         datos["filas_procesadas"] = filas_procesadas
         actualizar_sesion(sid, "pt_riesgo_alto", datos)
 
-        # Resumen de tajos encontrados
         total_tmh = sum(t["tmh"] for t in tajos_procesados)
         n_tajos   = len(tajos_procesados)
 
-        # Listar los primeros 15
         lista_tajos = ""
         for t in tajos_procesados[:15]:
             lista_tajos += (
-                f"  • *{t['tajo']}* | {t['tmh']:,.0f} t | "
+                f"  • *{t['tajo']}* | {t['tmh']:.1f} kt | "
                 f"Zn:{t['zn_pct']:.2f}% | NSR:{t['nsr']:.0f}\n"
             )
         if n_tajos > 15:
@@ -312,7 +296,7 @@ def _procesar_csv(ruta_local: str, datos: dict, sid: int, usuario: dict) -> str:
             f"✅ *CSV procesado correctamente*\n"
             f"{'─'*28}\n"
             f"📊 Tajos encontrados: *{n_tajos}*\n"
-            f"⚖️ TMH total: *{total_tmh:,.0f} t*\n"
+            f"⚖️ TMH total: *{total_tmh:.1f} kt*\n"
             f"📋 Filas procesadas: {filas_procesadas}\n"
             f"{'─'*28}\n"
             f"{lista_tajos}"
@@ -334,16 +318,15 @@ def _extraer_tajo_nivel(layers: str) -> tuple:
     """
     Extrae tajo y nivel de LAYERS.
     Formato: NIVEL_OREBODY_TAJO  ej: 1550_OB1_T-021
-    El tajo es la parte después del segundo guión bajo que empieza con T-
+    El tajo es la parte que empieza con T- o T seguido de número/letra.
     """
     partes = layers.split("_")
     nivel  = partes[0] if partes else ""
 
-    # Buscar la parte que empieza con T- o T
     tajo = None
     for i, p in enumerate(partes):
-        if p.upper().startswith("T-") or (p.upper().startswith("T") and len(p) > 1):
-            # Reconstruir el tajo completo (puede tener _ internos como T-081_2)
+        if p.upper().startswith("T-") or (p.upper().startswith("T") and
+                                           len(p) > 1 and p[1:].replace("-","").isalnum()):
             tajo = "_".join(partes[i:])
             break
 
@@ -355,7 +338,6 @@ def _extraer_tajo_nivel(layers: str) -> tuple:
 # ══════════════════════════════════════════════════════════════
 
 def _guardar_plan(datos: dict, usuario: dict, sid: int) -> str:
-    """Guarda el plan en BD con los riesgos asignados."""
     try:
         mes          = datos["mes"]
         anio         = datos["anio"]
@@ -371,7 +353,6 @@ def _guardar_plan(datos: dict, usuario: dict, sid: int) -> str:
             (mes, anio, tipo_envio)
         )
 
-        # Insertar nuevos
         insertados = 0
         for t in tajos_proc:
             tajo = t["tajo"]
@@ -390,7 +371,7 @@ def _guardar_plan(datos: dict, usuario: dict, sid: int) -> str:
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s)""",
                 (
                     tajo, t["nivel"], mes, anio, tipo_envio,
-                    round(t["tmh"], 2),
+                    round(t["tmh"],    2),
                     round(t["zn_pct"], 4),
                     round(t["pb_pct"], 4),
                     round(t["cu_pct"], 4),
@@ -407,12 +388,13 @@ def _guardar_plan(datos: dict, usuario: dict, sid: int) -> str:
         alto_n  = len(tajos_alto)
         medio_n = len(tajos_medio)
         bajo_n  = insertados - alto_n - medio_n
+        tmh_tot = sum(t["tmh"] for t in tajos_proc)
 
         return (
             f"✅ *Plan de tajos guardado*\n"
             f"{'─'*28}\n"
             f"📅 {MESES[mes].capitalize()} {anio} — {tipo_envio}\n"
-            f"📦 Total: *{insertados}* tajos\n"
+            f"⚖️ TMH total: *{tmh_tot:.1f} kt*\n"
             f"{'─'*28}\n"
             f"🔴 ALTO:  {alto_n} tajos\n"
             f"🟡 MEDIO: {medio_n} tajos\n"
@@ -420,7 +402,7 @@ def _guardar_plan(datos: dict, usuario: dict, sid: int) -> str:
             f"{'─'*28}\n"
             f"👤 {usuario['nombre']}\n"
             f"📅 {fecha_hora_str()}\n\n"
-            f"_(Consulta con: 'tajos de alto riesgo' o 'plan de mayo')_"
+            f"_(Consulta: 'tajos de alto riesgo' o 'plan de junio')_"
         )
 
     except Exception as e:
@@ -434,15 +416,38 @@ def _guardar_plan(datos: dict, usuario: dict, sid: int) -> str:
 # CONSULTAS PÚBLICAS
 # ══════════════════════════════════════════════════════════════
 
-def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None) -> str:
+def _plan_activo_mes_anio(mes: int = None, anio: int = None) -> tuple:
     """
-    Tajos de alto/medio riesgo del plan activo
+    Devuelve (mes, anio) del plan activo más reciente.
+    Si se especifica mes/anio los usa directamente.
+    Si no, busca el plan más reciente en BD.
+    """
+    if mes and anio:
+        return mes, anio
+
+    # Buscar el plan más reciente activo
+    row = ejecutar(
+        """SELECT mes, anio FROM plan_tajos
+           WHERE activo = TRUE
+           ORDER BY anio DESC, mes DESC
+           LIMIT 1""",
+        fetchone=True
+    )
+    if row:
+        return int(row[0]), int(row[1])
+
+    # Fallback: mes actual
+    hoy = hora_peru()
+    return hoy.month, hoy.year
+
+
+def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None,
+                            mes: int = None, anio: int = None) -> str:
+    """
+    Tajos de alto/medio riesgo del plan activo más reciente
     cruzados con sondajes matriculados.
-    Si riesgo=None → muestra ALTO y MEDIO.
     """
-    hoy  = hora_peru()
-    mes  = hoy.month
-    anio = hoy.year
+    mes, anio = _plan_activo_mes_anio(mes, anio)
 
     where_riesgo = ""
     params       = [mes, anio]
@@ -458,7 +463,7 @@ def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None) -> str:
                    SUM(CASE WHEN s.estado_perforacion = 'EN_CURSO' THEN 1 ELSE 0 END) as en_perf,
                    SUM(CASE WHEN s.estado_perforacion = 'FINALIZADO' THEN 1 ELSE 0 END) as finalizados
             FROM plan_tajos pt
-            LEFT JOIN sondajes s ON s.tajo_objetivo = pt.tajo
+            LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) = UPPER(pt.tajo)
             WHERE pt.mes = %s AND pt.anio = %s AND pt.activo = TRUE
             {where_riesgo}
             GROUP BY pt.tajo, pt.riesgo, pt.tmh, pt.zn_pct, pt.nsr
@@ -468,17 +473,21 @@ def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None) -> str:
         params, fetchall=True
     ) or []
 
+    nombre_mes = MESES[mes].capitalize()
+
     if not rows:
         titulo = f"riesgo {riesgo}" if riesgo else "alto/medio riesgo"
         return (
             f"📋 No hay tajos de {titulo} en el plan activo "
-            f"({MESES[mes]} {anio}).\n"
+            f"({nombre_mes} {anio}).\n"
             f"¿Ya se cargó el plan? Escribe *cargar plan tajos*."
         )
 
-    nombre_mes = MESES[mes].capitalize()
-    lineas     = [f"⚠️ *TAJOS {('DE ' + riesgo) if riesgo else 'ALTO/MEDIO RIESGO'}*"]
-    lineas.append(f"📅 {nombre_mes} {anio}\n{'─'*28}")
+    titulo_riesgo = f"DE {riesgo}" if riesgo else "ALTO/MEDIO RIESGO"
+    lineas = [
+        f"⚠️ *TAJOS {titulo_riesgo}*",
+        f"📅 {nombre_mes} {anio}\n{'─'*28}"
+    ]
 
     icono_r = {"ALTO": "🔴", "MEDIO": "🟡", "BAJO": "🟢"}
 
@@ -486,10 +495,10 @@ def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None) -> str:
         tajo, riesgo_t, tmh, zn, nsr, n_s, en_perf, finalizados = r
         icono  = icono_r.get(riesgo_t, "⬜")
         tmh_f  = float(tmh or 0)
-        zn_f   = float(zn or 0)
+        zn_f   = float(zn  or 0)
         nsr_f  = float(nsr or 0)
-        n_s    = int(n_s or 0)
-        ep     = int(en_perf or 0)
+        n_s    = int(n_s   or 0)
+        ep     = int(en_perf    or 0)
         fin    = int(finalizados or 0)
 
         if n_s == 0:
@@ -503,7 +512,7 @@ def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None) -> str:
 
         lineas.append(
             f"\n{icono} *{tajo}* — {riesgo_t}\n"
-            f"   TMH: {tmh_f:,.0f} t | Zn: {zn_f:.2f}% | NSR: {nsr_f:.0f}\n"
+            f"   TMH: {tmh_f:.1f} kt | Zn: {zn_f:.2f}% | NSR: {nsr_f:.0f}\n"
             f"   DDH: {estado_ddh}"
         )
 
@@ -514,9 +523,7 @@ def consultar_tajos_riesgo(riesgo: str = None, usuario: dict = None) -> str:
 def consultar_plan_mes(mes: int = None, anio: int = None,
                        usuario: dict = None) -> str:
     """Resumen del plan activo del mes."""
-    hoy  = hora_peru()
-    mes  = mes  or hoy.month
-    anio = anio or hoy.year
+    mes, anio = _plan_activo_mes_anio(mes, anio)
 
     rows = ejecutar(
         """SELECT riesgo, COUNT(*), SUM(tmh), AVG(zn_pct), AVG(nsr)
@@ -527,15 +534,16 @@ def consultar_plan_mes(mes: int = None, anio: int = None,
         (mes, anio), fetchall=True
     ) or []
 
+    nombre_mes = MESES[mes].capitalize()
+
     if not rows:
         return (
-            f"📋 No hay plan cargado para *{MESES[mes]} {anio}*.\n"
+            f"📋 No hay plan cargado para *{nombre_mes} {anio}*.\n"
             f"El geólogo puede cargarlo con: *cargar plan tajos*"
         )
 
-    total_tajos = sum(int(r[1] or 0) for r in rows)
+    total_tajos = sum(int(r[1]   or 0) for r in rows)
     total_tmh   = sum(float(r[2] or 0) for r in rows)
-    nombre_mes  = MESES[mes].capitalize()
     icono_r     = {"ALTO": "🔴", "MEDIO": "🟡", "BAJO": "🟢"}
 
     lineas = [
@@ -547,13 +555,13 @@ def consultar_plan_mes(mes: int = None, anio: int = None,
         pct = float(tmh or 0) / total_tmh * 100 if total_tmh > 0 else 0
         lineas.append(
             f"{icono_r.get(riesgo_t,'⬜')} *{riesgo_t}*: "
-            f"{int(n or 0)} tajos | {float(tmh or 0):,.0f} t ({pct:.0f}%)\n"
+            f"{int(n or 0)} tajos | {float(tmh or 0):.1f} kt ({pct:.0f}%)\n"
             f"   Zn prom: {float(zn_avg or 0):.2f}% | NSR prom: {float(nsr_avg or 0):.0f}"
         )
 
     lineas.append(
         f"\n{'─'*28}\n"
-        f"📦 Total: *{total_tajos}* tajos | *{total_tmh:,.0f} t*\n"
+        f"📦 Total: *{total_tajos}* tajos | *{total_tmh:.1f} kt*\n"
         f"📅 {fecha_hora_str()}"
     )
     return "\n".join(lineas)
@@ -561,16 +569,13 @@ def consultar_plan_mes(mes: int = None, anio: int = None,
 
 def consultar_leyes_tajo(tajo: str, usuario: dict = None) -> str:
     """Ficha de leyes de un tajo específico del plan activo."""
-    hoy  = hora_peru()
-
     row = ejecutar(
         """SELECT pt.tajo, pt.nivel, pt.mes, pt.anio, pt.tipo_envio,
                   pt.tmh, pt.zn_pct, pt.pb_pct, pt.cu_pct, pt.ag_oz,
                   pt.nsr, pt.riesgo,
                   COUNT(s.id) as n_sondajes,
                   SUM(CASE WHEN s.estado_perforacion='EN_CURSO' THEN 1 ELSE 0 END) as en_perf,
-                  SUM(CASE WHEN s.estado_perforacion='FINALIZADO' THEN 1 ELSE 0 END) as finalizados,
-                  SUM(COALESCE(s.profundidad_final,0)) as metros_tot
+                  SUM(CASE WHEN s.estado_perforacion='FINALIZADO' THEN 1 ELSE 0 END) as finalizados
            FROM plan_tajos pt
            LEFT JOIN sondajes s ON UPPER(s.tajo_objetivo) = UPPER(pt.tajo)
            WHERE UPPER(pt.tajo) = UPPER(%s) AND pt.activo = TRUE
@@ -589,20 +594,18 @@ def consultar_leyes_tajo(tajo: str, usuario: dict = None) -> str:
         )
 
     (tajo_n, nivel, mes, anio, tipo, tmh, zn, pb, cu, ag, nsr,
-     riesgo_t, n_s, en_perf, finalizados, metros_tot) = row
+     riesgo_t, n_s, en_perf, finalizados) = row
 
-    icono_r = {"ALTO": "🔴", "MEDIO": "🟡", "BAJO": "🟢"}
+    icono_r    = {"ALTO": "🔴", "MEDIO": "🟡", "BAJO": "🟢"}
     nombre_mes = MESES[int(mes)].capitalize() if mes else "—"
 
-    # Sondajes vinculados
     sondajes_rows = ejecutar(
         """SELECT s.bhid, s.estado_perforacion,
                   COALESCE(s.profundidad_final,0) as final,
-                  COALESCE(s.profundidad_prog,0) as prog
+                  COALESCE(s.profundidad_prog,0)  as prog
            FROM sondajes s
            WHERE UPPER(s.tajo_objetivo) = UPPER(%s)
-           ORDER BY s.bhid
-           LIMIT 10""",
+           ORDER BY s.bhid LIMIT 10""",
         (tajo_n,), fetchall=True
     ) or []
 
@@ -611,8 +614,8 @@ def consultar_leyes_tajo(tajo: str, usuario: dict = None) -> str:
         for s in sondajes_rows:
             bhid, estado, final, prog = s
             pct = f"{float(final)/float(prog)*100:.0f}%" if float(prog) > 0 else "—"
-            est_icon = {"EN_CURSO": "🔄", "FINALIZADO": "✅", "PLANIFICADO": "⏳"}.get(
-                str(estado), "⏳")
+            est_icon = {"EN_CURSO": "🔄", "FINALIZADO": "✅",
+                        "PLANIFICADO": "⏳"}.get(str(estado), "⏳")
             ddh_str += f"  {est_icon} *{bhid}* | {float(final):.1f}/{float(prog):.1f}m ({pct})\n"
     else:
         ddh_str = "  _(Sin sondajes matriculados)_\n"
@@ -624,12 +627,12 @@ def consultar_leyes_tajo(tajo: str, usuario: dict = None) -> str:
         f"{icono_r.get(riesgo_t,'⬜')} Riesgo: *{riesgo_t}*\n"
         f"{'─'*30}\n"
         f"⚖️ *Recursos:*\n"
-        f"   TMH:    {float(tmh or 0):>10,.0f} t\n"
-        f"   Zn(%):  {float(zn  or 0):>10.3f}\n"
-        f"   Pb(%):  {float(pb  or 0):>10.3f}\n"
-        f"   Cu(%):  {float(cu  or 0):>10.3f}\n"
-        f"   Ag(oz): {float(ag  or 0):>10.3f}\n"
-        f"   NSR($): {float(nsr or 0):>10.0f}\n"
+        f"   TMH:    {float(tmh or 0):>8.1f} kt\n"
+        f"   Zn(%):  {float(zn  or 0):>8.3f}\n"
+        f"   Pb(%):  {float(pb  or 0):>8.3f}\n"
+        f"   Cu(%):  {float(cu  or 0):>8.3f}\n"
+        f"   Ag(oz): {float(ag  or 0):>8.3f}\n"
+        f"   NSR($): {float(nsr or 0):>8.0f}\n"
         f"{'─'*30}\n"
         f"⛏️ *Sondajes DDH ({int(n_s or 0)}):*\n"
         f"{ddh_str}"
@@ -640,9 +643,7 @@ def consultar_leyes_tajo(tajo: str, usuario: dict = None) -> str:
 
 def tajos_criticos_sin_perforar(usuario: dict = None) -> str:
     """Tajos ALTO riesgo sin ningún sondaje activo en perforación."""
-    hoy  = hora_peru()
-    mes  = hoy.month
-    anio = hoy.year
+    mes, anio = _plan_activo_mes_anio()
 
     rows = ejecutar(
         """SELECT pt.tajo, pt.tmh, pt.zn_pct, pt.nsr,
@@ -658,24 +659,26 @@ def tajos_criticos_sin_perforar(usuario: dict = None) -> str:
         (mes, anio), fetchall=True
     ) or []
 
+    nombre_mes = MESES[mes].capitalize()
+
     if not rows:
         return (
             f"✅ No hay tajos ALTO riesgo sin perforación activa\n"
-            f"para {MESES[mes]} {anio}."
+            f"para {nombre_mes} {anio}."
         )
 
-    nombre_mes = MESES[mes].capitalize()
-    lineas     = [
+    lineas = [
         f"🚨 *TAJOS CRÍTICOS SIN PERFORAR*\n"
         f"📅 {nombre_mes} {anio}\n{'─'*28}"
     ]
 
     for r in rows:
         tajo, tmh, zn, nsr, total_ddh, _ = r
-        ddh_str = f"⛔ Sin DDH" if int(total_ddh or 0) == 0 else f"📋 {int(total_ddh)} matriculado(s)"
+        ddh_str = "⛔ Sin DDH" if int(total_ddh or 0) == 0 \
+                  else f"📋 {int(total_ddh)} matriculado(s)"
         lineas.append(
             f"\n🔴 *{tajo}*\n"
-            f"   TMH: {float(tmh or 0):,.0f} t | Zn: {float(zn or 0):.2f}% | NSR: {float(nsr or 0):.0f}\n"
+            f"   TMH: {float(tmh or 0):.1f} kt | Zn: {float(zn or 0):.2f}% | NSR: {float(nsr or 0):.0f}\n"
             f"   {ddh_str}"
         )
 
@@ -698,14 +701,12 @@ def _parsear_mes_anio(msg: str) -> tuple | None:
         "septiembre":9,"octubre":10,"noviembre":11,"diciembre":12
     }
 
-    # Buscar nombre de mes
     for nombre, num in nombres_mes.items():
         if nombre in msg:
             anio_match = re.search(r"\d{4}", msg)
             anio = int(anio_match.group()) if anio_match else hora_peru().year
             return (num, anio)
 
-    # Formato numérico: "5 2026" o "05/2026" o "5/2026"
     match = re.search(r"(\d{1,2})[/\s\-](\d{4})", msg)
     if match:
         mes  = int(match.group(1))
@@ -713,7 +714,6 @@ def _parsear_mes_anio(msg: str) -> tuple | None:
         if 1 <= mes <= 12:
             return (mes, anio)
 
-    # Solo número 1-12 (asume año actual)
     match2 = re.match(r"^(\d{1,2})$", msg)
     if match2:
         mes = int(match2.group(1))
@@ -724,9 +724,5 @@ def _parsear_mes_anio(msg: str) -> tuple | None:
 
 
 def _tmh_grupo(tajos_procesados: list, tajos_grupo: list) -> float:
-    """Suma TMH de los tajos del grupo."""
     grupo_set = set(tajos_grupo)
-    return sum(
-        t["tmh"] for t in tajos_procesados
-        if t["tajo"] in grupo_set
-    )
+    return sum(t["tmh"] for t in tajos_procesados if t["tajo"] in grupo_set)
