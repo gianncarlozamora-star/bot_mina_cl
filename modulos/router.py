@@ -25,6 +25,7 @@ import modulos.reporte_sgs         as mod_reporte_sgs
 import modulos.gestion_perforacion as mod_gestion_perf
 import modulos.consolidado_perf    as mod_consolidado_perf
 import modulos.modelamiento        as mod_modelamiento
+import modulos.plan_tajos          as mod_plan_tajos    # ← NUEVO
 
 ROLES_MATRICULA    = {"GEOLOGO", "ADMIN"}
 ROLES_PERFORACION  = {"PERFORISTA", "ADMIN"}
@@ -32,6 +33,7 @@ ROLES_SGS          = {"SGS", "ADMIN"}
 ROLES_CERTIMIN     = {"CERTIMIN", "ADMIN"}
 ROLES_MODELAMIENTO = {"GEOLOGO", "ADMIN"}
 ROLES_CONSULTA     = {"GEOLOGO", "ADMIN", "GERENCIA", "PERFORISTA"}
+ROLES_PLAN_TAJOS   = {"GEOLOGO", "ADMIN"}                    # ← NUEVO
 
 
 def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
@@ -67,6 +69,33 @@ def procesar(mensaje: str, remitente: str, foto_url: str = None) -> str:
 
     
     # ── Accesos directos desde menú interactivo ───────────────
+    # ── Plan de tajos — acceso directo ──────────────────────
+    if msg_limpio.lower() in ("cargar plan tajos", "plan tajos",
+                               "cargar plan", "subir plan tajos",
+                               "nuevo plan tajos"):
+        cerrar_sesion(usuario["id"])
+        if usuario["rol"] not in ROLES_PLAN_TAJOS:
+            return "⛔ Solo los geólogos pueden cargar el plan de tajos."
+        sid = crear_sesion(usuario["id"], FLUJOS["PLAN_TAJOS"])
+        return mod_plan_tajos.iniciar(usuario, sid)
+
+    # ── CSV recibido — continuar flujo plan_tajos ─────────
+    if msg_limpio.startswith("[csv:") and obtener_sesion(usuario["id"]):
+        sesion_csv = obtener_sesion(usuario["id"])
+        if sesion_csv and sesion_csv.get("flujo") == FLUJOS["PLAN_TAJOS"]:
+            ruta = sesion_csv.get("datos", {}).get("csv_ruta_local")
+            resultado = mod_plan_tajos.procesar(
+                msg_limpio, usuario, sesion_csv,
+                archivo_local=ruta
+            )
+            if ruta:
+                try:
+                    import os as _os
+                    _os.remove(ruta)
+                except:
+                    pass
+            return resultado
+
     if msg_limpio.lower() in ("anular sgs", "anular_sgs"):
         cerrar_sesion(usuario["id"])
         sid = crear_sesion(usuario["id"], FLUJOS["ANULAR_SGS"])
@@ -268,6 +297,32 @@ def _despachar_intencion(accion, intent, mensaje, remitente, usuario):
         return mod_modelamiento.iniciar(usuario, sid)
 
     # ── Reporte SGS ───────────────────────────────────────────
+    # ── Plan de tajos ─────────────────────────────────────────
+    if accion == "plan_tajos" or any(w in mensaje.lower() for w in (
+            "cargar plan tajos", "plan tajos", "subir plan",
+            "cargar plan", "nuevo plan tajos")):
+        if rol not in ROLES_PLAN_TAJOS:
+            return "⛔ Solo los geólogos pueden cargar el plan de tajos."
+        sid = crear_sesion(usuario["id"], FLUJOS["PLAN_TAJOS"])
+        return mod_plan_tajos.iniciar(usuario, sid)
+
+    if accion == "consulta_tajos_riesgo" or any(w in mensaje.lower() for w in (
+            "tajos de alto riesgo", "tajos alto riesgo",
+            "tajos criticos", "tajos críticos",
+            "tajos de riesgo", "alto riesgo sin perforar")):
+        return mod_plan_tajos.consultar_tajos_riesgo(None, usuario)
+
+    if accion == "plan_mes" or any(w in mensaje.lower() for w in (
+            "plan de mayo", "plan del mes", "plan de junio",
+            "plan mensual", "resumen del plan")):
+        mes = intent.get("mes")
+        return mod_plan_tajos.consultar_plan_mes(mes=mes, usuario=usuario)
+
+    if accion == "tajos_criticos" or any(w in mensaje.lower() for w in (
+            "tajos sin perforar", "criticos sin perforar",
+            "críticos sin perforar", "tajos urgentes")):
+        return mod_plan_tajos.tajos_criticos_sin_perforar(usuario)
+
     if accion == "reporte_sgs" or any(w in mensaje.lower() for w in (
             "reporte sgs", "generar reporte sgs", "reporte diario sgs",
             "reporte geologia", "consolidado sgs")):
@@ -447,6 +502,14 @@ def _continuar_flujo(mensaje, remitente, usuario, sesion, foto_url=None):
 
     if flujo == FLUJOS["DESCARGA_EXCEL"]:
         return _procesar_descarga(mensaje, usuario, sesion)
+
+    if flujo == FLUJOS["PLAN_TAJOS"]:
+        ruta_csv = datos.get("csv_ruta_local")
+        resultado = mod_plan_tajos.procesar(
+            mensaje, usuario, sesion,
+            archivo_local=ruta_csv if paso == "pt_csv" else None
+        )
+        return resultado
 
     if flujo == FLUJOS["MODELAMIENTO"]:
         resultado = mod_modelamiento.procesar(mensaje, usuario, sesion)
