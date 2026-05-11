@@ -648,7 +648,10 @@ def consultar_tajo(tajo: str, usuario: dict) -> str:
         f"{detalle}"
         f"📅 {fecha_hora_str()}"
     )
-
+  
+  leyes = _leyes_del_tajo_plan(tajo)
+    if leyes:
+      return resultado + "\n" + leyes
 
 # ══════════════════════════════════════════════════════════════
 # CONSULTA POR OBJETIVO
@@ -777,7 +780,20 @@ def sondajes_en_curso(usuario: dict) -> str:
         f"📅 {fecha_hora_str()}"
     )
 
-
+def _leyes_del_tajo_plan(tajo: str) -> str:
+    from modulos.plan_tajos import consultar_leyes_tajo
+    try:
+        row = ejecutar(
+            """SELECT tajo FROM plan_tajos 
+               WHERE UPPER(tajo) LIKE '%' || UPPER(%s) || '%' 
+               AND activo = TRUE LIMIT 1""",
+            (tajo,), fetchone=True
+        )
+        if row:
+            return consultar_leyes_tajo(row[0])
+    except:
+        pass
+    return ""
 # ══════════════════════════════════════════════════════════════
 # CONSULTA DE FOTOS
 # ══════════════════════════════════════════════════════════════
