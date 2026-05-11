@@ -111,6 +111,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "gestion_perf",   "titulo": "Gestion Perforacion",   "desc": "Consolidado y activos"},
                 {"id": "sgs",            "titulo": "🔬 Reporte SGS",         "desc": "Logueo, muestreo, RQD"},
                 {"id": "modelamiento",   "titulo": "🗂️ Modelamiento",        "desc": "Modelar y estimar DDH"},
+                {"id": "plan_tajos",    "titulo": "📊 Plan Tajos",          "desc": "Cargar plan mensual"},
                 {"id": "descarga",       "titulo": "📥 Descargar Excel",     "desc": "Exportar reportes"},
             ]
         },
@@ -148,6 +149,7 @@ def menu_principal_rol(telefono: str, usuario: dict):
                 {"id": "sgs",          "titulo": "🔬 Reporte SGS",         "desc": "Logueo, muestreo"},
                 {"id": "certimin",     "titulo": "🧪 Certimin",            "desc": "Confirmar batch"},
                 {"id": "modelamiento", "titulo": "🗂️ Modelamiento",        "desc": "Modelar y estimar DDH"},
+                {"id": "plan_tajos",  "titulo": "📊 Plan Tajos",          "desc": "Cargar plan mensual"},
                 {"id": "descarga",     "titulo": "📥 Descargar Excel",     "desc": "Exportar reportes"},
             ]
         },
