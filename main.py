@@ -257,29 +257,42 @@ def _normalizar_interactivo(item_id: str, titulo: str) -> str:
     }
     if item_id in emp_map:
         return emp_map[item_id]
-
-    # Acciones del menú principal
+        
+    _item = item_id
+    if item_id.startswith("btn_"):
+        partes = item_id.split("_", 2)
+        if len(partes) == 3:
+            _item = partes[2]
+    if _item in acciones_menu:
+        return acciones_menu[_item]
+    
     acciones_menu = {
-        "matricula":    "matricular",
-        "perforacion":  "perforacion",
-        "perforacion_diamantina": "perforacion",  # ← AGREGAR
-        "perforacion_diamanti":   "perforacion",  # ← AGREGAR (truncado 20 chars)
-        "sgs":          "sgs",
-        "certimin":     "certimin",
-        "resumen":      "resumen",
-        "descarga":     "descargar",
-        "tajo":         "consultar tajo",
-        "objetivo":     "consultar objetivo",
-        "consulta":     "estado",
-        "anular":       "anular sondaje",
-        "batch":        "registrar batch",
-        "anular_sgs":   "anular sgs",
-        "reporte_sgs":  "reporte sgs",
-        "gestion_perf": "gestion perforacion",
-        "modelamiento":  "modelamiento",
+        "matricula":              "matricular",
+        "perforacion":            "perforacion",
+        "perforacion_diamantina": "perforacion",
+        "perforacion_diamanti":   "perforacion",
+        "sgs":                    "sgs",
+        "certimin":               "certimin",
+        "resumen":                "resumen",
+        "descarga":               "descargar",
+        "tajo":                   "consultar tajo",
+        "objetivo":               "consultar objetivo",
+        "consulta":               "estado",
+        "anular":                 "anular sondaje",
+        "batch":                  "registrar batch",
+        "anular_sgs":             "anular sgs",
+        "reporte_sgs":            "reporte sgs",
+        "gestion_perf":           "gestion perforacion",
+        "modelamiento":           "modelamiento",
     }
-    if item_id in acciones_menu:
-        return acciones_menu[item_id]
+    # Strip prefijo btn_N_ antes de buscar
+    _item = item_id
+    if item_id.startswith("btn_"):
+        partes = item_id.split("_", 2)
+        if len(partes) == 3:
+            _item = partes[2]
+    if _item in acciones_menu:
+        return acciones_menu[_item]
 
     # Fotos: foto_0, foto_1, etc.
     if item_id.startswith("foto_"):
